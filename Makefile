@@ -2,9 +2,9 @@ AS := riscv64-unknown-elf-as
 LD := riscv64-unknown-elf-ld
 OBJCOPY := riscv64-unknown-elf-objcopy
 
-RUN := qemu-system-riscv64 -M virt -smp 1 -m 2G -serial mon:stdio -bios none -kernel kernel.bin
+RUN := qemu-system-riscv64 -M virt -smp 4 -m 2G -serial mon:stdio -bios none -kernel kernel.bin
 
-AS_FLAGS := -I kernel -g -L -march=rv64im
+AS_FLAGS := -I kernel -g -L -march=rv64ima
 LD_FLAGS := -T linker.ld
 
 KERNEL_SRC := $(wildcard kernel/*.s)
