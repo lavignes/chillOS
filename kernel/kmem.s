@@ -11,6 +11,7 @@ kmem_mem_blocks_len:
 
 .equ DTB_MAGIC, 0xD00DFEED
 
+# TODO: Make methods only safe to call from hart0 use the `k0` prefix
 .global kmem_init
 kmem_init:
     pushd ra

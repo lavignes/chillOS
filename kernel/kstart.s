@@ -20,6 +20,7 @@ hart_park:
     wfi
     j hart_park
 
+# TODO: need to write panic routine that kills all harts
 STRING_DEFINE HALTING, "system is halting...\n"
 .global khalt
 khalt:
