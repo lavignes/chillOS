@@ -4,7 +4,7 @@ OBJCOPY := riscv64-unknown-elf-objcopy
 
 RUN := qemu-system-riscv64 -M virt -smp 4 -m 2G -serial mon:stdio -bios none -kernel kernel.bin
 
-AS_FLAGS := -I kernel -g -L -march=rv64ima
+AS_FLAGS := -I kernel -g -march=rv64ima
 LD_FLAGS := -T kernel.ld
 
 KERNEL_SRC := $(wildcard kernel/*.s)
@@ -16,10 +16,10 @@ all: kernel.bin
 	$(AS) $(AS_FLAGS) -c $< -o $@
 
 kernel.elf: $(KERNEL_OBJ)
-	$(LD) $(LD_FLAGS) $(KERNEL_OBJ) -o $@
+	$(LD) $(LD_FLAGS) $^ -o $@
 
 kernel.bin: kernel.elf
-	$(OBJCOPY) -O binary kernel.elf kernel.bin
+	$(OBJCOPY) -O binary $< $@
 
 clean:
 	rm -f kernel.bin kernel.elf $(KERNEL_OBJ)

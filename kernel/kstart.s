@@ -1,4 +1,5 @@
-.include "asm-common.inc"
+.include "pushpop.inc"
+.include "string.inc"
 
 .section .init
 .global kstart
@@ -11,7 +12,7 @@ kstart:
 
     # fdt/dtb addr is in a1
     mv a0, a1
-    call kmem_init
+    call k0mem_init
 
     tail khalt
 
@@ -19,6 +20,11 @@ kstart:
 hart_park:
     wfi
     j hart_park
+
+
+.global kpanic
+kpanic:
+    tail khalt
 
 # TODO: need to write panic routine that kills all harts
 STRING_DEFINE HALTING, "system is halting...\n"

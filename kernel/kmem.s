@@ -1,4 +1,5 @@
-.include "asm-common.inc"
+.include "pushpop.inc"
+.include "string.inc"
 
 # max number of memory ranges used for heaps
 .equ KMEM_MEM_BLOCKS_SIZE, 32
@@ -11,9 +12,8 @@ kmem_mem_blocks_len:
 
 .equ DTB_MAGIC, 0xD00DFEED
 
-# TODO: Make methods only safe to call from hart0 use the `k0` prefix
-.global kmem_init
-kmem_init:
+.global k0mem_init
+k0mem_init:
     pushd ra
     pushd s1
     csrw satp, zero     # disable all virtual memory and protection
@@ -57,19 +57,17 @@ halt_bad_magic:
     tail khalt
 
 be_to_lew:
-    mv t1, zero
-    andi t0, a0, 0x0FF
-    slli t1, t0, 24
-    srli a0, a0, 8
-    andi t0, a0, 0x0FF
-    slli t0, t0, 16
-    or t1, t0, t1
-    srli a0, a0, 8
-    andi t0, a0, 0x0FF
-    slli t0, t0, 8
-    or t1, t0, t1
-    srli a0, a0, 8
-    andi t0, a0, 0x0FF
-    or a0, t1, t0
+    andi t0, a0, 0xFF
+    slli t0, t0, 24
+    srli t1, a0, 24
+    or t0, t0, t1
+    srli t1, a0, 16
+    andi t1, t1, 0xFF
+    slli t1, t1, 8
+    or t0, t0, t1
+    srli t1, a0, 8
+    andi t1, t1, 0xFF
+    slli t1, t1, 16
+    or a0, t0, t1
     ret
 

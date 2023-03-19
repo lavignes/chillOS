@@ -1,4 +1,4 @@
-.include "asm-common.inc"
+.include "pushpop.inc"
 
 .global kprint
 kprint:

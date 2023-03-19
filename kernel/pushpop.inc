@@ -1,3 +1,6 @@
+.ifndef PUSHPOP_INC
+.equ PUSHPOP_INC, 1
+
 .macro pushd reg:req
     sd \reg, 0(sp)
     addi sp, sp, -8
@@ -38,10 +41,4 @@
     lbu \reg 0(sp)
 .endm
 
-.macro STRING_DEFINE label:req, value:req
-1:
-    .ascii "\value"
-\label\():
-    .dword 1b, \label - 1b
-    .align 4
-.endm
+.endif # PUSHPOP_INC
