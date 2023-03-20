@@ -2,6 +2,7 @@
 .include "string.inc"
 
 .section .init
+
 .global kstart
 kstart:
     # if we are not hart 0, go chill over there
@@ -16,11 +17,12 @@ kstart:
     call k0mem_alloc_init
 
     li a0, 0x42
-    nop
     call kmem_alloc
+    call kmem_free
 
     li a0, 0x42
     call kmem_alloc
+    call kmem_free
 
     tail kpanic
 

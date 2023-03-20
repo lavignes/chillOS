@@ -71,16 +71,6 @@ be_to_lew:
     or a0, t0, t1
     ret
 
-klock_aquire:
-    li t0, 1
-1:
-    amoswap.w.aq t0, t0, (a0)
-    bnez t0, 1b
-    ret
-
-klock_release:
-    amoswap.w.rl zero, zero, (a0)
-    ret
 
 # array of watermarks
 block_watermarks:
@@ -90,7 +80,7 @@ active_block:
     .dword 0
 
 mem_lock:
-    .word 0
+    .dword 0
 
 .global k0mem_alloc_init
 k0mem_alloc_init:
@@ -110,7 +100,7 @@ k0mem_alloc_init:
     blt t0, t3, 1b
     ret
 
-.global
+.global kmem_free
 kmem_free:
     ret
 
@@ -121,7 +111,7 @@ kmem_alloc:
 
     mv s1, a0       # backup memory size in s1
     la a0, mem_lock
-    call klock_aquire
+    call kspinlock_aquire
 1:
     la t0, active_block # get index into watermarks
     ld t0, 0(t0)
@@ -153,7 +143,7 @@ kmem_alloc:
 
     mv s1, t2           # backup pointer in s1
     la a0, mem_lock
-    call klock_release
+    call kspinlock_release
 
     mv a0, s1   # return pointer
     popd s1

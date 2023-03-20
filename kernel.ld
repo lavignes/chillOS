@@ -6,7 +6,9 @@ SECTIONS {
 	.text : ALIGN(4K) {
 		*(.init);
 		*(.text);
-        . += 4096;
+
+        . = ALIGN(16);
+        . += 4K;
         PROVIDE(KMEM_STACK_TOP = .);
 	}
 }
