@@ -16,14 +16,6 @@ kstart:
     call k0mem_init
     call k0mem_alloc_init
 
-    li a0, 0x42
-    call kmem_alloc
-    call kmem_free
-
-    li a0, 0x42
-    call kmem_alloc
-    call kmem_free
-
     tail kpanic
 
 # park the harts over here until we have semaphore to release them

@@ -71,7 +71,6 @@ be_to_lew:
     or a0, t0, t1
     ret
 
-
 # array of watermarks
 block_watermarks:
     .zero 8 * KMEM_MEM_BLOCKS_SIZE
@@ -106,8 +105,10 @@ kmem_free:
 
 .global kmem_alloc
 kmem_alloc:
-    pushd ra
-    pushd s1
+    addi sp, sp, -16
+    sd ra, 8(sp)
+    sd fp, 0(sp)
+    addi fp, sp, 16
 
     mv s1, a0       # backup memory size in s1
     la a0, mem_lock
@@ -146,6 +147,8 @@ kmem_alloc:
     call kspinlock_release
 
     mv a0, s1   # return pointer
-    popd s1
-    popd ra
+
+    ld ra, 8(sp)
+    ld fp, 0(sp)
+    addi sp, sp, 16
     ret
