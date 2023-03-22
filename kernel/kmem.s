@@ -16,7 +16,7 @@ k0mem_init:
     addi sp, sp, -16
     sd ra, 8(sp)
     sd s1, 0(sp)
-    
+
     csrw satp, zero     # disable all virtual memory and protection
 
     mv s1, a0
@@ -29,7 +29,7 @@ k0mem_init:
 1:
     mv a0, s1
     call init_mem_blocks
-    
+
     ld ra, 8(sp)
     ld s1, 0(sp)
     addi sp, sp, 16

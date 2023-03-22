@@ -21,16 +21,18 @@ hex_chars:
 .global uart_print
 uart_print:
     addi sp, sp, -48
-    sd ra, 32(sp)
-    sd fp, 24(sp)
-    sd s1, 16(sp)
-    sd s2, 8(sp)
-    sd s3, 0(sp)
+    sd ra, 40(sp)
+    sd fp, 32(sp)
+    sd s1, 24(sp)
+    sd s2, 16(sp)
+    sd s3, 8(sp)
+    sd s4, 0(sp)
     addi fp, sp, 48
 
     mv s1, a0
     mv s2, a1
     li s3, UART_BASE
+    mv s4, zero     # argument offset from fp
     add s2, s1, s2  # ptr to string end is now in s2
 Lloop:
     beq s1, s2, Lreturn # if end of string, end
@@ -55,8 +57,11 @@ Lhex:
     li t1, 'x'
     bne t0, t1, Lnext_char # if 'x', print 64-bit hex
 
-    ld t0, 0(fp)  # read hex value off arg stack TODO: need to increment arg offset
-    li t1, 60
+    add t0, fp, s4 # get argument offset
+    addi s4, s4, 8
+    ld t0, 0(t0)  # read arg
+
+    li t1, 60           # start shift at 60 bits
 1:
     srl t2, t0, t1      # shift nibble into LSBs
     andi t2, t2, 0xF    # mask out
@@ -65,17 +70,18 @@ Lhex:
     lbu t2, 0(t2)       # read hex char
     sb t2, 0(s3)        # write char
     addi t1, t1, -4     # decrease shift
-    bnez t1, 1b         # get next nibble
+    bgez t1, 1b         # get next nibble
     j Lnext_char
 
 Lnext_char:
     addi s1, s1, 1
     j Lloop
 Lreturn:
-    ld ra, 32(sp)
-    ld fp, 24(sp)
-    ld s1, 16(sp)
-    ld s2, 8(sp)
-    ld s3, 0(sp)
+    ld ra, 40(sp)
+    ld fp, 32(sp)
+    ld s1, 24(sp)
+    ld s2, 16(sp)
+    ld s3, 8(sp)
+    ld s4, 0(sp)
     addi sp, sp, 48
     ret

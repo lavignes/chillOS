@@ -1,7 +1,6 @@
 .include "string.inc"
 
 .section .init
-
 .global kstart
 kstart:
     # if we are not hart 0, go chill over there
@@ -15,7 +14,18 @@ kstart:
     call k0mem_init
     call k0mem_alloc_init
 
+    ld a0, TEST_FORMAT
+    ld a1, TEST_FORMAT + 8
+    li t0, 0x42
+    addi sp, sp, -8
+    sd t0, 0(sp)
+    nop
+    call uart_print
+    addi sp, sp, 8
+
     tail kpanic
+
+STRING_DEFINE TEST_FORMAT, "number:%x\n"
 
 # park the harts over here until we have semaphore to release them
 hart_park:
