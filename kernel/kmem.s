@@ -1,4 +1,3 @@
-.include "pushpop.inc"
 .include "string.inc"
 
 # max number of memory ranges used for heaps
@@ -14,8 +13,10 @@ kmem_mem_blocks_len:
 
 .global k0mem_init
 k0mem_init:
-    pushd ra
-    pushd s1
+    addi sp, sp, -16
+    sd ra, 8(sp)
+    sd s1, 0(sp)
+    
     csrw satp, zero     # disable all virtual memory and protection
 
     mv s1, a0
@@ -28,9 +29,10 @@ k0mem_init:
 1:
     mv a0, s1
     call init_mem_blocks
-
-    popd s1
-    popd ra
+    
+    ld ra, 8(sp)
+    ld s1, 0(sp)
+    addi sp, sp, 16
     ret
 
 init_mem_blocks:

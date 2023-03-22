@@ -1,6 +1,4 @@
 # TODO: i want to get the uart address from the dtb
-.include "pushpop.inc"
-
 .equ UART_BASE, 0x10000000
 
 .global uart_write
@@ -22,12 +20,14 @@ hex_chars:
 
 .global uart_print
 uart_print:
-    mv fp, sp
-    pushd fp
-    pushd ra
-    pushd s1
-    pushd s2
-    pushd s3
+    addi sp, sp, -48
+    sd ra, 32(sp)
+    sd fp, 24(sp)
+    sd s1, 16(sp)
+    sd s2, 8(sp)
+    sd s3, 0(sp)
+    addi fp, sp, 48
+
     mv s1, a0
     mv s2, a1
     li s3, UART_BASE
@@ -55,7 +55,7 @@ Lhex:
     li t1, 'x'
     bne t0, t1, Lnext_char # if 'x', print 64-bit hex
 
-    poprd t0, fp        # read hex value off arg stack
+    ld t0, 0(fp)  # read hex value off arg stack TODO: need to increment arg offset
     li t1, 60
 1:
     srl t2, t0, t1      # shift nibble into LSBs
@@ -72,9 +72,10 @@ Lnext_char:
     addi s1, s1, 1
     j Lloop
 Lreturn:
-    popd s3
-    popd s2
-    popd s1
-    popd ra
-    popd fp
+    ld ra, 32(sp)
+    ld fp, 24(sp)
+    ld s1, 16(sp)
+    ld s2, 8(sp)
+    ld s3, 0(sp)
+    addi sp, sp, 48
     ret

@@ -1,4 +1,3 @@
-.include "pushpop.inc"
 .include "string.inc"
 
 .section .init
