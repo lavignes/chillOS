@@ -1,3 +1,4 @@
+# vim: ft=riscv sw=8 ts=8 cc=80 noet
 .ifndef STRING_INC
 .equ STRING_INC, 1
 

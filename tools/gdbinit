@@ -6,4 +6,5 @@ tui reg all
 focus cmd
 
 file kernel.elf
+break kstart
 target remote localhost:9000

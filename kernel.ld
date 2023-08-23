@@ -1,4 +1,4 @@
-ENTRY(kstart);
+ENTRY(kStart);
 
 . = 0x80000000;
 
