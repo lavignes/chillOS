@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 import functools
 import sys
-from typing import Mapping, cast
+from typing import Mapping, Optional, cast
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -27,30 +27,40 @@ class TypeInteger(Type):
 
 @dataclass
 class TypePointer(Type):
-    ty: Type
+    ty: Type | Name
+    mut: bool
+
+@dataclass
+class TypeSlice(Type):
+    ty: Type | Name
     mut: bool
 
 @dataclass
 class TypeStruct(Type):
     fields: Sequence['Field']
 
+@dataclass
 class TypeFn(Type):
-    args: Sequence[Type]
-    rets: Type
+    args: Sequence[Type | Name]
+    rets: Type | Name
+
+@dataclass
+class TypeUnit(Type):
+    ffi: str
 
 TYPES: Mapping[Name, Type] = {
-    Name('*', '()'): TypeStruct(fields=[]),
-    Name('*', 'Bool'): TypeInteger(ffi='uint8_t'),
-    Name('*', 'U8'): TypeInteger(ffi='uint8_t'),
-    Name('*', 'I8'): TypeInteger(ffi='int8_t'),
-    Name('*', 'U16'): TypeInteger(ffi='uint16_t'),
-    Name('*', 'I16'): TypeInteger(ffi='int16_t'),
-    Name('*', 'U32'): TypeInteger(ffi='uint32_t'),
-    Name('*', 'I32'): TypeInteger(ffi='int32_t'),
-    Name('*', 'U64'): TypeInteger(ffi='uint64_t'),
-    Name('*', 'I64'): TypeInteger(ffi='int64_t'),
-    Name('*', 'UInt'): TypeInteger(ffi='size_t'),
-    Name('*', 'Int'): TypeInteger(ffi='ssize_t'),
+    Name('*', '()'): TypeUnit(ffi='Unit'),
+    Name('*', 'Bool'): TypeInteger(ffi='Bool'),
+    Name('*', 'U8'): TypeInteger(ffi='U8'),
+    Name('*', 'I8'): TypeInteger(ffi='I8'),
+    Name('*', 'U16'): TypeInteger(ffi='U16'),
+    Name('*', 'I16'): TypeInteger(ffi='I16'),
+    Name('*', 'U32'): TypeInteger(ffi='U32'),
+    Name('*', 'I32'): TypeInteger(ffi='I32'),
+    Name('*', 'U64'): TypeInteger(ffi='U64'),
+    Name('*', 'I64'): TypeInteger(ffi='I64'),
+    Name('*', 'UInt'): TypeInteger(ffi='UInt'),
+    Name('*', 'Int'): TypeInteger(ffi='Int'),
 }
 
 class Lexer:
@@ -120,7 +130,7 @@ class Lexer:
 
     def t_comment(self, t):
         r'//.*\n'
-        self.inner.lineno += len(t.value)
+        self.inner.lineno += 1
 
     def t_newline(self, t):
         r'\n+'
@@ -178,7 +188,7 @@ class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
 
     def parse(self, text: str) -> 'Pkg':
         lexer = Lexer()
@@ -196,7 +206,7 @@ class Parser:
         ('left', 'PLUS', 'MINUS'),
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
         ('left', 'AS'),
-        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF')
+        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF'),
     )
 
     def p_pkg(self, p):
@@ -290,21 +300,21 @@ class Parser:
         '''
         pkg_const : CONST ID COLON type EQUAL expr SEMI
         '''
-        p[0] = PkgConst(name=Name(self.pkg_name, p[2]), ty=p[4], pub=False, val=p[6], attrs=[])
+        p[0] = PkgConst(line=p.lineno(1), name=Name(self.pkg_name, p[2]), ty=p[4], pub=False, val=p[6], attrs=[])
 
     def p_pkg_fn_1(self, p):
         '''
         pkg_fn : FN ID PAREN_OPEN arg_list PAREN_CLOSE stmt_block
         '''
         name = Name(self.pkg_name, p[2])
-        p[0] = PkgFn(name=name, ty=name, pub=False, attrs=[], args=p[4], rets=TYPES[Name('*', '()')], stmts=p[6])
+        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[4], rets=TYPES[Name('*', '()')], stmts=p[6])
 
     def p_pkg_fn_2(self, p):
         '''
         pkg_fn : FN ID PAREN_OPEN arg_list PAREN_CLOSE COLON type stmt_block
         '''
         name = Name(self.pkg_name, p[2])
-        p[0] = PkgFn(name=name, ty=name, pub=False, attrs=[], args=p[4], rets=p[7], stmts=p[8])
+        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[4], rets=p[7], stmts=p[8])
 
     def p_arg_list_1(self, p):
         '''
@@ -340,7 +350,7 @@ class Parser:
         '''
         pkg_type : TYPE ID EQUAL type SEMI
         '''
-        p[0] = PkgType(name=Name(self.pkg_name, p[2]), ty=p[4], pub=False, attrs=[])
+        p[0] = PkgType(line=p.lineno(1), name=Name(self.pkg_name, p[2]), ty=p[4], pub=False, attrs=[])
 
     def p_type_1(self, p):
         '''
@@ -350,14 +360,46 @@ class Parser:
 
     def p_type_2(self, p):
         '''
+        type : AMPERSAND type
+        '''
+        p[0] = TypePointer(p[2], mut=False)
+
+    def p_type_3(self, p):
+        '''
+        type : AMPERSAND MUT type
+        '''
+        p[0] = TypePointer(p[3], mut=True)
+
+    def p_type_4(self, p):
+        '''
+        type : AMPERSAND BRACKET_OPEN type BRACKET_CLOSE
+        '''
+        p[0] = TypeSlice(p[3], mut=False)
+
+    def p_type_5(self, p):
+        '''
+        type : AMPERSAND MUT BRACKET_OPEN type BRACKET_CLOSE
+        '''
+        p[0] = TypeSlice(p[4], mut=True)
+
+    def p_type_6(self, p):
+        '''
         type : BRACE_OPEN field_list BRACE_CLOSE
         '''
         p[0] = TypeStruct(fields=p[2])
+
+    def p_type_7(self, p):
+        '''
+        type : PAREN_OPEN PAREN_CLOSE
+        '''
+        p[0] = TYPES[Name('*', '()')]
 
     def p_name_1(self, p):
         '''
         name : ID
         '''
+        # TODO: Need to build scope list as we walk down the tree
+        # if ID is in scope, then we should resole to that plain name
         if Name('*', p[1]) in TYPES:
             p[0] = Name('*', p[1])
             return
@@ -421,52 +463,128 @@ class Parser:
         '''
         stmt : LET ID COLON type EQUAL expr SEMI
         '''
-        p[0] = StmtAssign(name=p[2], val=p[5], mut=False)
+        p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=p[4], val=p[6], mut=False)
 
     def p_stmt_2(self, p):
         '''
         stmt : LET MUT ID COLON type EQUAL expr SEMI
         '''
-        p[0] = StmtAssign(name=p[2], val=p[5], mut=True)
+        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=True)
 
     def p_stmt_3(self, p):
         '''
         stmt : RETURN SEMI
         '''
-        p[0] = StmtRet(val=ExprUnit(ty=TYPES[Name('*', '()')]))
+        p[0] = StmtRet(line=p.lineno(1), val=ExprUnit(ty=TYPES[Name('*', '()')]))
 
     def p_stmt_4(self, p):
         '''
         stmt : RETURN expr SEMI
         '''
-        p[0] = StmtRet(val=p[1])
+        p[0] = StmtRet(line=p.lineno(1), val=p[2])
 
     def p_stmt_5(self, p):
         '''
         stmt : CONTINUE SEMI
-             | CONTINUE DOUBLE_COLON ID SEMI
-             | BREAK SEMI
-             | BREAK DOUBLE_COLON ID SEMI
-             | if_stmt
-             | FOR stmt_block
-             | FOR DOUBLE_COLON ID stmt_block
-             | FOR expr stmt_block
-             | FOR DOUBLE_COLON ID expr stmt_block
         '''
+        p[0] = StmtCont(line=p.lineno(1), label=None)
+
+    def p_stmt_6(self, p):
+        '''
+        stmt : CONTINUE DOUBLE_COLON ID SEMI
+        '''
+        p[0] = StmtCont(line=p.lineno(1), label=p[3])
+
+    def p_stmt_7(self, p):
+        '''
+        stmt : BREAK SEMI
+        '''
+        p[0] = StmtBreak(line=p.lineno(1), label=None)
+
+    def p_stmt_8(self, p):
+        '''
+        stmt : BREAK DOUBLE_COLON ID SEMI
+        '''
+        p[0] = StmtBreak(line=p.lineno(1), label=p[3])
+
+    def p_stmt_9(self, p):
+        '''
+        stmt : if_stmt
+             | for_stmt
+        '''
+        p[0] = p[1]
+
+    #def p_stmt_10(self, p):
+    #    '''
+    #    stmt : expr EQUAL expr SEMI
+    #    '''
+    #    p[0] = StmtAssign(line=p.lineno(2), lhs=p[1], rhs=p[3])
+
+    #def p_stmt_11(self, p):
+    #    '''
+    #    stmt : call_expr SEMI
+    #    '''
+    #    p[0] = StmtCall(line=p.lineno(2), expr=p[1])
+
+    def p_for_stmt_1(self, p):
+        '''
+        for_stmt : FOR stmt_block
+        '''
+        p[0] = StmtFor(line=p.lineno(1), expr=None, stmts=p[2], label=None)
+
+    def p_for_stmt_2(self, p):
+        '''
+        for_stmt : FOR DOUBLE_COLON ID stmt_block
+        '''
+        p[0] = StmtFor(line=p.lineno(1), expr=None, stmts=p[4], label=p[3])
+
+    def p_for_stmt_3(self, p):
+        '''
+        for_stmt : FOR expr stmt_block
+        '''
+        p[0] = StmtFor(line=p.lineno(1), expr=p[2], stmts=p[3], label=None)
+
+    def p_for_stmt_4(self, p):
+        '''
+        for_stmt : FOR DOUBLE_COLON ID expr stmt_block
+        '''
+        p[0] = StmtFor(line=p.lineno(1), expr=p[4], stmts=p[5], label=p[3])
 
     def p_if_stmt_1(self, p):
         '''
         if_stmt : IF expr stmt_block
-                | IF expr stmt_block ELSE stmt_block
-                | IF expr stmt_block ELSE if_stmt
         '''
+        p[0] = StmtIf(line=p.lineno(1), expr=p[2], stmts=p[3], else_stmts=[], label=None)
 
     def p_if_stmt_2(self, p):
         '''
-        if_stmt : IF DOUBLE_COLON ID expr stmt_block
-                | IF DOUBLE_COLON ID expr stmt_block ELSE stmt_block
-                | IF DOUBLE_COLON ID expr stmt_block ELSE if_stmt
+        if_stmt : IF expr stmt_block ELSE stmt_block
         '''
+        p[0] = StmtIf(line=p.lineno(1), expr=p[2], stmts=p[3], else_stmts=p[5], label=None)
+
+    def p_if_stmt_3(self, p):
+        '''
+        if_stmt : IF expr stmt_block ELSE if_stmt
+        '''
+        p[0] = StmtIf(line=p.lineno(1), expr=p[2], stmts=p[3], else_stmts=[p[5]], label=None)
+
+    def p_if_stmt_4(self, p):
+        '''
+        if_stmt : IF DOUBLE_COLON ID expr stmt_block
+        '''
+        p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[], label=p[3])
+
+    def p_if_stmt_5(self, p):
+        '''
+        if_stmt : IF DOUBLE_COLON ID expr stmt_block ELSE stmt_block
+        '''
+        p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=p[7], label=p[3])
+
+    def p_if_stmt_6(self, p):
+        '''
+        if_stmt : IF DOUBLE_COLON ID expr stmt_block ELSE if_stmt
+        '''
+        p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[p[7]], label=p[3])
 
     def p_expr_1(self, p):
         '''
@@ -476,6 +594,7 @@ class Parser:
              | call_expr
              | cast_expr
              | field_expr
+             | sizeof_expr
         '''
         p[0] = p[1]
 
@@ -489,14 +608,11 @@ class Parser:
         '''
         expr : name
         '''
-        p[0] = p[1]
+        p[0] = ExprName(ty=None, name=p[1])
 
     def p_expr_4(self, p):
         '''
-        expr : INTEGER
-             | BOOL
-             | STRING
-             | PAREN_OPEN PAREN_CLOSE
+        expr : term_expr
         '''
         p[0] = p[1]
 
@@ -510,31 +626,37 @@ class Parser:
         '''
         index_expr : expr BRACE_OPEN expr BRACE_CLOSE
         '''
+        p[0] = ExprIndex(ty=None, lhs=p[1], rhs=p[3])
 
     def p_field_expr(self, p):
         '''
         field_expr : expr DOT ID
         '''
+        p[0] = ExprAccess(ty=None, lhs=p[1], field=p[3])
 
     def p_call_expr_1(self, p):
         '''
         call_expr : expr PAREN_OPEN expr_list PAREN_CLOSE
         '''
+        p[0] = ExprCall(ty=None, lhs=p[1], args=p[3])
 
     def p_expr_list_1(self, p):
         '''
         expr_list : empty
         '''
+        p[0] = []
 
     def p_expr_list_2(self, p):
         '''
         expr_list : expr
         '''
+        p[0] = [p[1]]
 
     def p_expr_list_3(self, p):
         '''
         expr_list : expr COMMA expr_list
         '''
+        p[0] = [p[1]] + p[3]
 
     def p_binary_expr(self, p):
         '''
@@ -557,24 +679,52 @@ class Parser:
                     | expr SHIFT_LEFT expr
                     | expr SHIFT_RIGHT expr
         '''
+        p[0] = ExprBinOp(ty=None, lhs=p[1], op=p[2], rhs=p[3])
 
     def p_cast_expr(self, p):
         '''
         cast_expr : expr AS type
         '''
+        p[0] = ExprCast(ty=TYPES.get(p[3]), expr=p[1], into=p[3])
 
-    def p_unary_expression(self, p):
+    def p_sizeof_expr(self, p):
+        '''
+        sizeof_expr : SIZEOF type
+        '''
+        p[0] = ExprSizeof(ty=TYPES[Name('*', 'UInt')], rhs=p[2])
+
+    def p_unary_expr_1(self, p):
         '''
         unary_expr : MINUS expr %prec UMINUS
                    | AMPERSAND expr %prec UAMPERSAND
-                   | AMPERSAND MUT expr %prec UAMPERSAND
                    | STAR expr %prec USTAR
                    | BANG expr
-                   | SIZEOF type
         '''
+        p[0] = ExprUnaryOp(ty=None, op=p[1], rhs=p[2])
 
-    def p_error(self, p):
-        eprint(f'ERROR: {p}')
+    def p_unary_expr_2(self, p):
+        '''
+        unary_expr : AMPERSAND MUT expr %prec UAMPERSAND
+        '''
+        p[0] = ExprUnaryOp(ty=None, op=p[1], rhs=p[3])
+
+    def p_term_expr_1(self, p):
+        '''
+        term_expr : INTEGER
+        '''
+        p[0] = ExprInteger(ty=None, val=p[1])
+
+    def p_term_expr_2(self, p):
+        '''
+        term_expr : BOOL
+        '''
+        p[0] = ExprBool(ty=TYPES[Name('*', 'Bool')], val=p[1])
+
+    def p_term_expr_3(self, p):
+        '''
+        term_expr : STRING
+        '''
+        p[0] = ExprString(ty=TypeSlice(ty=TYPES[Name('*', 'U8')], mut=False), val=cast(str, p[1]).encode())
 
 @dataclass
 class Pkg:
@@ -582,6 +732,7 @@ class Pkg:
 
 @dataclass
 class PkgItem(ABC):
+    line: int
     name: Name
     ty: Type | Name
     pub: bool
@@ -615,36 +766,262 @@ class PkgType(PkgItem):
 
 @dataclass
 class Stmt(ABC):
-    pass
+    line: int
 
 @dataclass
-class StmtAssign(Stmt):
+class StmtBind(Stmt):
     name: str
+    ty: Type | Name
     val: 'Expr'
     mut: bool
 
 @dataclass
-class StmtRet(ABC):
+class StmtAssign(Stmt):
+    lhs: 'Expr'
+    rhs: 'Expr'
+
+@dataclass
+class StmtRet(Stmt):
     val: 'Expr'
 
 @dataclass
-class Expr(ABC):
-    ty: Type | Name
+class StmtCont(Stmt):
+    label: Optional[str]
 
+@dataclass
+class StmtBreak(Stmt):
+    label: Optional[str]
+
+@dataclass
+class StmtIf(Stmt):
+    expr: 'Expr'
+    stmts: Sequence[Stmt]
+    else_stmts: Sequence[Stmt]
+    label: Optional[str]
+
+@dataclass
+class StmtFor(Stmt):
+    expr: Optional['Expr']
+    stmts: Sequence[Stmt]
+    label: Optional[str]
+
+@dataclass
+class StmtCall(Stmt):
+    expr: 'ExprCall'
+
+@dataclass
+class Expr(ABC):
+    ty: Optional[Type]
+
+@dataclass
 class ExprUnit(Expr):
     pass
 
-parser = Parser()
-pkg = parser.parse('''
-        pkg test;
+@dataclass
+class ExprSizeof(Expr):
+    rhs: Type | Name
 
-        // this is a test
-        [no_mangle]
-        pub fn _start(mut test: U8) {
-            return;
-        }
-''')
+@dataclass
+class ExprName(Expr):
+    name: Name
+
+@dataclass
+class ExprCast(Expr):
+    expr: Expr
+    into: Type | Name
+
+@dataclass
+class ExprIndex(Expr):
+    lhs: Expr
+    rhs: Expr
+
+@dataclass
+class ExprAccess(Expr):
+    lhs: Expr
+    field: str
+
+@dataclass
+class ExprCall(Expr):
+    lhs: Expr
+    args: Sequence[Expr]
+
+@dataclass
+class ExprBinOp(Expr):
+    lhs: Expr
+    op: str
+    rhs: Expr
+
+@dataclass
+class ExprUnaryOp(Expr):
+    op: str
+    rhs: Expr
+
+@dataclass
+class ExprInteger(Expr):
+    val: int
+
+@dataclass
+class ExprBool(Expr):
+    val: bool
+
+@dataclass
+class ExprString(Expr):
+    val: bytes
+
+filename=sys.argv[1]
+parser = Parser()
+with open(filename) as f:
+    pkg = parser.parse(f.read())
 
 eprint(f'{pkg}')
 
+def emit_name(name: Name) -> str:
+    if name.pkg == '*':
+        return name.ident
+    return f'_ZN{len(name.pkg)}{name.pkg}{len(name.ident)}{name.ident}E'
 
+def emit_type_name(ty: Type) -> str:
+    if isinstance(ty, TypeInteger):
+        return ty.ffi
+    if isinstance(ty, TypePointer):
+        if ty.mut:
+            return f'{emit_type_or_name(ty.ty)} *'
+        return f'const {emit_type_or_name(ty.ty)} *'
+    if isinstance(ty, TypeSlice):
+        if ty.mut:
+            return 'SliceMut'
+        return 'Slice'
+    if isinstance(ty, TypeUnit):
+        return 'Unit'
+    return f'{ty}'
+
+def emit_type_or_name(ty: Type | Name) -> str:
+    if isinstance(ty, Type):
+        return emit_type_name(ty)
+    return emit_name(ty)
+
+def emit_expr(expr: Expr) -> str:
+    if isinstance(expr, ExprUnit):
+        return '((Unit){})'
+    if isinstance(expr, ExprBinOp):
+        return f'({emit_expr(expr.lhs)} {expr.op} {emit_expr(expr.rhs)})'
+    if isinstance(expr, ExprUnaryOp):
+        return f'({expr.op} {emit_expr(expr.rhs)})'
+    if isinstance(expr, ExprName):
+        return emit_name(expr.name)
+    if isinstance(expr, ExprInteger):
+        return f'{expr.val}'
+    if isinstance(expr, ExprCast):
+        return f'(({emit_type_or_name(expr.into)}) {emit_expr(expr.expr)})'
+    if isinstance(expr, ExprSizeof):
+        return f'(sizeof ({emit_type_or_name(expr.rhs)}))'
+    if isinstance(expr, ExprBool):
+        if expr.val:
+            return '1'
+        else:
+            return '0'
+    if isinstance(expr, ExprCall):
+        args = []
+        for arg in expr.args:
+            args += [emit_expr(arg)]
+        return f'({emit_expr(expr.lhs)}({",".join(args)}))'
+    if isinstance(expr, ExprIndex):
+        return f'({emit_expr(expr.lhs)}[{emit_expr(expr.rhs)}])'
+    if isinstance(expr, ExprAccess):
+        return f'({emit_expr(expr.lhs)}.{expr.field})'
+    return f'{expr}'
+
+def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
+    pad = ' ' * indent
+    output = [pad + f'#line {stmt.line} "{filename}"']
+    if isinstance(stmt, StmtRet):
+        output += [pad + f'return {emit_expr(stmt.val)};']
+        return output
+    if isinstance(stmt, StmtIf):
+        output += [pad + f'if ({emit_expr(stmt.expr)}) {{']
+        for s in stmt.stmts:
+            output += emit_stmt(s, indent + 4)
+        output += [pad + '}']
+        if len(stmt.else_stmts) > 0:
+            output += [pad + 'else {{']
+            for s in stmt.else_stmts:
+                output += emit_stmt(s, indent + 4)
+            output += [pad + '}']
+        if stmt.label is not None:
+            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+        return output
+    if isinstance(stmt, StmtBreak):
+        if stmt.label is not None:
+            output += [pad + f'goto __label_break_{stmt.label};']
+        else:
+            output += 'break;'
+        return output;
+    if isinstance(stmt, StmtCont):
+        if stmt.label is not None:
+            output += [pad + f'goto __label_continue_{stmt.label};']
+        else:
+            output += 'continue;'
+        return output;
+    if isinstance(stmt, StmtBind):
+        if stmt.mut:
+            output += [pad + f'{emit_type_or_name(stmt.ty)} {stmt.name} = {emit_expr(stmt.val)};']
+        else:
+            output += [pad + f'{emit_type_or_name(stmt.ty)} const {stmt.name} = {emit_expr(stmt.val)};']
+        return output
+    if isinstance(stmt, StmtAssign):
+        output += [pad + f'{emit_expr(stmt.lhs)} = {emit_expr(stmt.rhs)};']
+        return output
+    if isinstance(stmt, StmtFor):
+        if stmt.expr is not None:
+            output += [pad + f'while ({emit_expr(stmt.expr)}) {{']
+        else:
+            output += [pad + 'while (1) {']
+        for s in stmt.stmts:
+            output += emit_stmt(s, indent + 4)
+        if stmt.label is not None:
+            output += [pad + f'    __label_continue_{stmt.label}: (void)0;']
+        output += [pad + '}']
+        if stmt.label is not None:
+            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+        return output
+    if isinstance(stmt, StmtCall):
+        output += [pad + f'{emit_expr(stmt.expr)};']
+        return output
+    output += [f'{stmt}']
+    return output
+
+output = []
+for item in pkg.items:
+    output += [f'#line {item.line} "{filename}"']
+    if isinstance(item, PkgFn):
+        args = []
+        for arg in item.args:
+            s = f'{emit_type_or_name(arg.ty)}'
+            if not arg.mut:
+                s += ' const'
+            s += f' {arg.name}'
+            args += [s]
+        output += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
+        for stmt in item.stmts:
+            output += emit_stmt(stmt, 4)
+        output += ['}']
+        continue
+
+    eprint(f'{item}')
+
+print('typedef struct{} Unit;')
+print('typedef unsigned char U8;')
+print('typedef signed char I8;')
+print('typedef unsigned short U16;')
+print('typedef signed short I16;')
+print('typedef unsigned int U32;')
+print('typedef signed int I32;')
+print('typedef unsigned long int U64;')
+print('typedef signed long int I64;')
+print('typedef U64 UInt;')
+print('typedef I64 Int;')
+print('typedef struct{ void * const ptr; const UInt const len; } SliceMut;')
+print('typedef struct{ const void * const ptr; UInt const len; } Slice;')
+
+for line in output:
+    print(line)
