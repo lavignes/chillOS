@@ -49,6 +49,38 @@ class TypeFn(Type):
 class TypeUnit(Type):
     ffi: str
 
+def emit_name(name: Name) -> str:
+    if name.pkg == '*':
+        return name.ident
+    return f'_ZN{len(name.pkg)}{name.pkg}{len(name.ident)}{name.ident}E'
+
+def emit_type(ty: Type) -> str:
+    if isinstance(ty, TypeInteger):
+        return ty.ffi
+    if isinstance(ty, TypePointer):
+        if ty.mut:
+            return f'{emit_type_or_name(ty.ty)} *'
+        return f'{emit_type_or_name(ty.ty)} const *'
+    if isinstance(ty, TypeSlice):
+        if ty.mut:
+            return 'SliceMut'
+        return 'Slice'
+    if isinstance(ty, TypeUnit):
+        return 'Unit'
+    if isinstance(ty, TypeStruct):
+        fields = []
+        for field in ty.fields:
+            fields += [f'{emit_type_or_name(field.ty)} {field.name};']
+        return f'{{ {"".join(fields)} }}'
+    if isinstance(ty, TypeFn):
+        return fn_ptr_name(ty)
+    return f'{ty}'
+
+def emit_type_or_name(ty: Type | Name) -> str:
+    if isinstance(ty, Type):
+        return emit_type(ty)
+    return emit_name(ty)
+
 PRIMS: Mapping[Name, Type] = {
     Name('*', '()'): TypeUnit(ffi='Unit'),
     Name('*', 'Bool'): TypeInteger(ffi='Bool'),
@@ -197,11 +229,22 @@ class Lexer:
         t.value = value
         return t
 
+FN_PTRS: Mapping[str, Tuple[str, TypeFn]] = {}
+
+def fn_ptr_name(ty: TypeFn) -> str:
+    args = []
+    for arg in ty.args:
+        args += [f'{emit_type_or_name(arg)}']
+    c_name = f'{emit_type_or_name(ty.rets)}(*)({",".join(args)})'
+    if c_name not in FN_PTRS:
+        FN_PTRS[c_name] = (f'__FnPtrAlias{len(FN_PTRS)}', ty)
+    return FN_PTRS[c_name][0]
+
 class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
         self.scopes = [set()]
 
     def parse(self, text: str) -> 'Pkg':
@@ -333,7 +376,7 @@ class Parser:
 
     def p_pkg_fn_1(self, p):
         '''
-        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE stmt_block
+        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE stmt_block end_scope
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1].add(name)
@@ -341,7 +384,7 @@ class Parser:
 
     def p_pkg_fn_2(self, p):
         '''
-        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE COLON type stmt_block
+        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE COLON type stmt_block end_scope
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1].add(name)
@@ -437,17 +480,19 @@ class Parser:
         '''
         p[0] = PRIMS[Name('*', '()')]
 
-    #def p_type_8(self, p):
-    #    '''
-    #    type : FN PAREN_OPEN type_list PAREN_CLOSE
-    #    '''
-    #    p[0] = TypeFn(args=p[3], rets=PRIMS[Name('*', '()')])
+    def p_type_8(self, p):
+        '''
+        type : FN PAREN_OPEN type_list PAREN_CLOSE
+        '''
+        p[0] = TypeFn(args=p[3], rets=PRIMS[Name('*', '()')])
+        fn_ptr_name(p[0])
 
-    #def p_type_9(self, p):
-    #    '''
-    #    type : FN PAREN_OPEN type_list PAREN_CLOSE COLON type
-    #    '''
-    #    p[0] = TypeFn(args=p[3], rets=p[6])
+    def p_type_9(self, p):
+        '''
+        type : FN PAREN_OPEN type_list PAREN_CLOSE COLON type
+        '''
+        p[0] = TypeFn(args=p[3], rets=p[6])
+        fn_ptr_name(p[0])
 
     def p_type_list_1(self, p):
         '''
@@ -518,10 +563,9 @@ class Parser:
 
     def p_stmt_block(self, p):
         '''
-        stmt_block : BRACE_OPEN stmt_list BRACE_CLOSE end_scope
+        stmt_block : BRACE_OPEN begin_scope stmt_list BRACE_CLOSE end_scope
         '''
-        self.scopes.append(set())
-        p[0] = p[2]
+        p[0] = p[3]
 
     def p_end_scope(self, p):
         '''
@@ -825,9 +869,9 @@ class Parser:
 
     def p_primary_expr_5(self, p):
         '''
-        primary_expr : name BRACE_OPEN init_list BRACE_CLOSE
+        primary_expr : BRACE_OPEN name init_list BRACE_CLOSE
         '''
-        p[0] = ExprStruct(ty=None, name=p[1], vals=p[3])
+        p[0] = ExprStruct(ty=None, name=p[2], vals=p[3])
 
     def p_init_list_1(self, p):
         '''
@@ -1011,41 +1055,6 @@ parser = Parser()
 with open(filename) as f:
     pkg = parser.parse(f.read())
 
-def emit_name(name: Name) -> str:
-    if name.pkg == '*':
-        return name.ident
-    return f'_ZN{len(name.pkg)}{name.pkg}{len(name.ident)}{name.ident}E'
-
-def emit_type(ty: Type) -> str:
-    if isinstance(ty, TypeInteger):
-        return ty.ffi
-    if isinstance(ty, TypePointer):
-        if ty.mut:
-            return f'{emit_type_or_name(ty.ty)} *'
-        return f'{emit_type_or_name(ty.ty)} const *'
-    if isinstance(ty, TypeSlice):
-        if ty.mut:
-            return 'SliceMut'
-        return 'Slice'
-    if isinstance(ty, TypeUnit):
-        return 'Unit'
-    if isinstance(ty, TypeStruct):
-        fields = []
-        for field in ty.fields:
-            fields += [f'{emit_type_or_name(field.ty)} {field.name};']
-        return f'{{ {"".join(fields)} }}'
-    if isinstance(ty, TypeFn):
-        args = []
-        for arg in ty.args:
-            args += [f'{emit_type_or_name(arg)}']
-        return f'{emit_type_or_name(ty.rets)}(*)({",".join(args)})'
-    return f'{ty}'
-
-def emit_type_or_name(ty: Type | Name) -> str:
-    if isinstance(ty, Type):
-        return emit_type(ty)
-    return emit_name(ty)
-
 def emit_expr(expr: Expr) -> str:
     if isinstance(expr, ExprUnit):
         return '((Unit){})'
@@ -1148,6 +1157,7 @@ typedefs = []
 pub_forwards = []
 pub_typedefs = []
 pub_structs = []
+imports = []
 
 for item in pkg.items:
     output += [f'#line {item.line} "{filename}"']
@@ -1198,7 +1208,7 @@ for item in pkg.items:
         continue
     if isinstance(item, PkgUse) and not make_pkg:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
-            forwards += f.readlines()
+            imports += f.readlines()
         continue
 
 if not make_pkg:
@@ -1220,6 +1230,15 @@ if not make_pkg:
 
         for line in typedefs:
             print(line, file=f)
+
+        for line in imports:
+            print(line, file=f)
+
+        for (alias, ty) in FN_PTRS.values():
+            args = []
+            for arg in ty.args:
+                args += [f'{emit_type_or_name(arg)}']
+            print(f'typedef {emit_type_or_name(ty.rets)}(* {alias})({",".join(args)});', file=f)
 
         for line in forwards:
             print(line, file=f)
