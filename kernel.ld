@@ -1,4 +1,4 @@
-ENTRY(kStart);
+ENTRY(_kentry);
 
 . = 0x80000000;
 
@@ -9,6 +9,6 @@ SECTIONS {
 
         . = ALIGN(16);
         . += 4K;
-        PROVIDE(KMEM_STACK_TOP = .);
+        PROVIDE(_KSTACK_TOP = .);
 	}
 }

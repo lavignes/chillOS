@@ -4,6 +4,7 @@ from abc import ABC
 from collections.abc import Sequence
 from dataclasses import dataclass
 import functools
+import os
 import sys
 from typing import Mapping, Optional, Tuple, cast
 
@@ -158,7 +159,7 @@ class Lexer:
         return t
 
     def t_INTEGER(self, t):
-        r"(\d+)|(0x[0-9a-fA-F]+)|(0b[01]+)|('((\\x[0-9a-fA-F]{2})|[ -~])')"
+        r"(0x[0-9a-fA-F]+)|(0b[01]+)|(\d+)|('((\\x[0-9a-fA-F]{2})|[ -~])')"
         if cast(str, t.value).startswith('0x'):
             t.value = int(t.value[2:], base=16)
         elif cast(str, t.value).startswith('0b'):
@@ -200,7 +201,7 @@ class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
         self.scopes = [set()]
 
     def parse(self, text: str) -> 'Pkg':
@@ -220,7 +221,7 @@ class Parser:
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
         ('left', 'AS'),
         ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF', 'COMPLEMENT'),
-        ('left', 'POST_PAREN_OPEN', 'DOT', 'POST_BRACE_OPEN', 'POST_BRACKET_OPEN')
+        ('left', 'PPAREN_OPEN', 'DOT', 'PBRACKET_OPEN')
     )
 
     def p_pkg(self, p):
@@ -234,6 +235,9 @@ class Parser:
         set_pkg_name :
         '''
         self.pkg_name = p[-1]
+
+    def p_error(self, p):
+        raise SyntaxError(f'{p}')
 
     def p_empty(self, p):
         '''
@@ -289,7 +293,7 @@ class Parser:
                  | PUB pkg_fn
                  | PUB pkg_type
         '''
-        p[2].public = True
+        p[2].pub = True
         p[0] = p[2]
 
     def p_pkg_item_2(self, p):
@@ -309,6 +313,7 @@ class Parser:
         '''
         pkg_item : USE ID SEMI
         '''
+        p[0] = PkgUse(line=p.lineno(1), name=p[2], attrs=[])
 
     def p_pkg_bind_1(self, p):
         '''
@@ -432,6 +437,36 @@ class Parser:
         '''
         p[0] = PRIMS[Name('*', '()')]
 
+    #def p_type_8(self, p):
+    #    '''
+    #    type : FN PAREN_OPEN type_list PAREN_CLOSE
+    #    '''
+    #    p[0] = TypeFn(args=p[3], rets=PRIMS[Name('*', '()')])
+
+    #def p_type_9(self, p):
+    #    '''
+    #    type : FN PAREN_OPEN type_list PAREN_CLOSE COLON type
+    #    '''
+    #    p[0] = TypeFn(args=p[3], rets=p[6])
+
+    def p_type_list_1(self, p):
+        '''
+        type_list : empty
+        '''
+        p[0] = []
+
+    def p_type_list_2(self, p):
+        '''
+        type_list : type
+        '''
+        p[0] = [p[1]]
+
+    def p_type_list_3(self, p):
+        '''
+        type_list : type COMMA type_list
+        '''
+        p[0] = [p[1]] + p[3]
+
     def p_name_1(self, p):
         '''
         name : ID
@@ -449,7 +484,7 @@ class Parser:
         '''
         name : ID DOUBLE_COLON ID
         '''
-        p[0] = Name(p[1], p[2])
+        p[0] = Name(p[1], p[3])
 
     def p_field_list_1(self, p):
         '''
@@ -500,7 +535,7 @@ class Parser:
         '''
         p[0] = []
 
-    def p_stmt_list_2(self, p):
+    def p_stmt_list_3(self, p):
         '''
         stmt_list : stmt_list stmt
         '''
@@ -566,25 +601,26 @@ class Parser:
 
     def p_expr_stmt_1(self, p):
         '''
-        expr_stmt : lvalue_expr EQUAL expr SEMI
-                  | lvalue_expr PLUS_EQUAL expr SEMI
-                  | lvalue_expr MINUS_EQUAL expr SEMI
-                  | lvalue_expr STAR_EQUAL expr SEMI
-                  | lvalue_expr SOLIDUS_EQUAL expr SEMI
-                  | lvalue_expr MODULUS_EQUAL expr SEMI
-                  | lvalue_expr SHIFT_LEFT_EQUAL expr SEMI
-                  | lvalue_expr SHIFT_RIGHT_EQUAL expr SEMI
-                  | lvalue_expr AND_EQUAL expr SEMI
-                  | lvalue_expr CARET_EQUAL expr SEMI
-                  | lvalue_expr PIPE_EQUAL expr SEMI
+        expr_stmt : expr EQUAL expr SEMI
+                  | expr PLUS_EQUAL expr SEMI
+                  | expr MINUS_EQUAL expr SEMI
+                  | expr STAR_EQUAL expr SEMI
+                  | expr SOLIDUS_EQUAL expr SEMI
+                  | expr MODULUS_EQUAL expr SEMI
+                  | expr SHIFT_LEFT_EQUAL expr SEMI
+                  | expr SHIFT_RIGHT_EQUAL expr SEMI
+                  | expr AND_EQUAL expr SEMI
+                  | expr CARET_EQUAL expr SEMI
+                  | expr PIPE_EQUAL expr SEMI
         '''
         p[0] = StmtAssign(line=p.lineno(2), lhs=p[1], op=p[2], rhs=p[3])
 
     def p_expr_stmt_2(self, p):
         '''
-        expr_stmt : call_expr SEMI
+        expr_stmt : expr PAREN_OPEN expr_list PAREN_CLOSE SEMI %prec PPAREN_OPEN
         '''
-        p[0] = StmtCall(line=p.lineno(2), expr=p[1])
+        expr = ExprCall(ty=None, lhs=p[1], args=p[3])
+        p[0] = StmtCall(line=p.lineno(2), expr=expr)
 
     def p_for_stmt_1(self, p):
         '''
@@ -651,20 +687,6 @@ class Parser:
         self.scopes[-1].add(Name('*', p[3]))
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[p[7]], label=p[3])
 
-    def p_lvalue_expr_1(self, p):
-        '''
-        lvalue_expr : name_expr
-                    | unary_expr
-                    | field_expr
-        '''
-        p[0] = p[1]
-
-    def p_lvalue_expr_2(self, p):
-        '''
-        lvalue_expr : PAREN_OPEN lvalue_expr PAREN_CLOSE
-        '''
-        p[0] = p[2]
-
     def p_expr_1(self, p):
         '''
         expr : binary_expr
@@ -692,19 +714,19 @@ class Parser:
 
     def p_index_expr(self, p):
         '''
-        index_expr : lvalue_expr BRACKET_OPEN expr BRACKET_CLOSE %prec POST_BRACKET_OPEN
+        index_expr : expr BRACKET_OPEN expr BRACKET_CLOSE %prec PBRACKET_OPEN
         '''
         p[0] = ExprIndex(ty=None, lhs=p[1], rhs=p[3])
 
     def p_field_expr(self, p):
         '''
-        field_expr : lvalue_expr DOT ID
+        field_expr : expr DOT ID
         '''
         p[0] = ExprAccess(ty=None, lhs=p[1], field=p[3])
 
-    def p_call_expr_1(self, p):
+    def p_call_expr(self, p):
         '''
-        call_expr : lvalue_expr PAREN_OPEN expr_list PAREN_CLOSE %prec POST_PAREN_OPEN
+        call_expr : expr PAREN_OPEN expr_list PAREN_CLOSE %prec PPAREN_OPEN
         '''
         p[0] = ExprCall(ty=None, lhs=p[1], args=p[3])
 
@@ -753,7 +775,7 @@ class Parser:
         '''
         cast_expr : expr AS type
         '''
-        p[0] = ExprCast(ty=PRIMS.get(p[3]), expr=p[1], into=p[3])
+        p[0] = ExprCast(ty=None, expr=p[1], into=p[3])
 
     def p_sizeof_expr(self, p):
         '''
@@ -777,17 +799,11 @@ class Parser:
         '''
         p[0] = ExprUnaryOp(ty=None, op=p[1], rhs=p[3])
 
-    def p_name_expr(self, p):
-        '''
-        name_expr : name
-        '''
-        p[0] = ExprName(ty=None, name=p[1])
-
     def p_primary_expr_1(self, p):
         '''
-        primary_expr : name_expr
+        primary_expr : name
         '''
-        p[0] = p[1]
+        p[0] = ExprName(ty=None, name=p[1])
 
     def p_prmary_expr_2(self, p):
         '''
@@ -809,7 +825,7 @@ class Parser:
 
     def p_primary_expr_5(self, p):
         '''
-        primary_expr : name BRACE_OPEN init_list BRACE_CLOSE %prec POST_BRACE_OPEN
+        primary_expr : name BRACE_OPEN init_list BRACE_CLOSE
         '''
         p[0] = ExprStruct(ty=None, name=p[1], vals=p[3])
 
@@ -838,13 +854,17 @@ class Pkg:
 @dataclass
 class PkgItem(ABC):
     line: int
-    name: Name
-    ty: Type | Name
-    pub: bool
     attrs: Sequence[str]
 
 @dataclass
+class PkgUse(PkgItem):
+    name: str
+
+@dataclass
 class PkgBind(PkgItem):
+    name: Name
+    ty: Type | Name
+    pub: bool
     val: 'Expr'
     mut: bool
 
@@ -862,13 +882,18 @@ class Field:
 
 @dataclass
 class PkgFn(PkgItem):
+    name: Name
+    ty: Type | Name
+    pub: bool
     args: Sequence[FnArg]
     rets: Type | Name
     stmts: Sequence['Stmt']
 
 @dataclass
 class PkgType(PkgItem):
-    pass
+    name: Name
+    ty: Type | Name
+    pub: bool
 
 @dataclass
 class Stmt(ABC):
@@ -980,7 +1005,8 @@ class ExprStruct(Expr):
     name: Name
     vals: Sequence[Tuple[str, Expr]]
 
-filename=sys.argv[1]
+make_pkg = sys.argv[1] == '-p'
+filename = sys.argv[2]
 parser = Parser()
 with open(filename) as f:
     pkg = parser.parse(f.read())
@@ -996,7 +1022,7 @@ def emit_type(ty: Type) -> str:
     if isinstance(ty, TypePointer):
         if ty.mut:
             return f'{emit_type_or_name(ty.ty)} *'
-        return f'const {emit_type_or_name(ty.ty)} *'
+        return f'{emit_type_or_name(ty.ty)} const *'
     if isinstance(ty, TypeSlice):
         if ty.mut:
             return 'SliceMut'
@@ -1006,8 +1032,13 @@ def emit_type(ty: Type) -> str:
     if isinstance(ty, TypeStruct):
         fields = []
         for field in ty.fields:
-            fields += [f'{emit_type_or_name(field.ty)} {field.name}']
-        return f'{{ {";".join(fields)} }}'
+            fields += [f'{emit_type_or_name(field.ty)} {field.name};']
+        return f'{{ {"".join(fields)} }}'
+    if isinstance(ty, TypeFn):
+        args = []
+        for arg in ty.args:
+            args += [f'{emit_type_or_name(arg)}']
+        return f'{emit_type_or_name(ty.rets)}(*)({",".join(args)})'
     return f'{ty}'
 
 def emit_type_or_name(ty: Type | Name) -> str:
@@ -1112,21 +1143,28 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
 
 output = []
 forwards = []
-typedefs = []
 structs = []
+typedefs = []
+pub_forwards = []
+pub_typedefs = []
+pub_structs = []
 
 for item in pkg.items:
     output += [f'#line {item.line} "{filename}"']
     if isinstance(item, PkgFn):
         args = []
         for arg in item.args:
-            s = f'{emit_type_or_name(arg.ty)}'
             if not arg.mut:
-                s += ' const'
-            s += f' {arg.name}'
-            args += [s]
-        forwards += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
-        output += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
+                args += [f'{emit_type_or_name(arg.ty)} const {arg.name}']
+            else:
+                args += [f'{emit_type_or_name(arg.ty)} {arg.name}']
+        if item.pub:
+            forwards += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
+            pub_forwards += [f'extern {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
+            output += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
+        else:
+            forwards += [f'static {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
+            output += [f'static {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
         for stmt in item.stmts:
             output += emit_stmt(stmt, 4)
         output += ['}']
@@ -1135,39 +1173,68 @@ for item in pkg.items:
         structs += [f'struct {emit_name(item.name)};']
         typedefs += [f'typedef struct {emit_name(item.name)} {emit_name(item.name)};']
         output += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
+        if item.pub:
+            pub_structs += [f'struct {emit_name(item.name)};']
+            pub_typedefs += [f'typedef struct {emit_name(item.name)} {emit_name(item.name)};']
+            pub_typedefs += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
         continue
     if isinstance(item, PkgBind):
-        if item.mut:
-            forwards += [f'{emit_type_or_name(item.ty)} {emit_name(item.name)};']
-            output += [f'{emit_type_or_name(item.ty)} {emit_name(item.name)} = {emit_expr(item.val)};']
+        if item.pub:
+            if item.mut:
+                forwards += [f'{emit_type_or_name(item.ty)} {emit_name(item.name)};']
+                pub_forwards += [f'extern {emit_type_or_name(item.ty)} {emit_name(item.name)};']
+                output += [f'{emit_type_or_name(item.ty)} {emit_name(item.name)} = {emit_expr(item.val)};']
+            else:
+                forwards += [f'{emit_type_or_name(item.ty)} const {emit_name(item.name)};']
+                pub_forwards += [f'extern {emit_type_or_name(item.ty)} const {emit_name(item.name)};']
+                output += [f'{emit_type_or_name(item.ty)} const {emit_name(item.name)} = {emit_expr(item.val)};']
         else:
-            forwards += [f'{emit_type_or_name(item.ty)} const {emit_name(item.name)};']
-            output += [f'{emit_type_or_name(item.ty)} const {emit_name(item.name)} = {emit_expr(item.val)};']
+            if item.mut:
+                forwards += [f'static {emit_type_or_name(item.ty)} {emit_name(item.name)};']
+                output += [f'static {emit_type_or_name(item.ty)} {emit_name(item.name)} = {emit_expr(item.val)};']
+            else:
+                forwards += [f'static {emit_type_or_name(item.ty)} const {emit_name(item.name)};']
+                output += [f'static {emit_type_or_name(item.ty)} const {emit_name(item.name)} = {emit_expr(item.val)};']
         continue
-    eprint(f'{item}')
+    if isinstance(item, PkgUse) and not make_pkg:
+        with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
+            forwards += f.readlines()
+        continue
 
-print('typedef struct{} Unit;')
-print('typedef unsigned char U8;')
-print('typedef signed char I8;')
-print('typedef unsigned short U16;')
-print('typedef signed short I16;')
-print('typedef unsigned int U32;')
-print('typedef signed int I32;')
-print('typedef unsigned long int U64;')
-print('typedef signed long int I64;')
-print('typedef U64 UInt;')
-print('typedef I64 Int;')
-print('typedef struct{ void * const ptr; const UInt const len; } SliceMut;')
-print('typedef struct{ const void * const ptr; UInt const len; } Slice;')
+if not make_pkg:
+    with open(os.path.splitext(filename)[0] + '.c', 'w') as f:
+        print('typedef struct{} Unit;', file=f)
+        print('typedef unsigned char U8;', file=f)
+        print('typedef signed char I8;', file=f)
+        print('typedef unsigned short U16;', file=f)
+        print('typedef signed short I16;', file=f)
+        print('typedef unsigned int U32;', file=f)
+        print('typedef signed int I32;', file=f)
+        print('typedef unsigned long int U64;', file=f)
+        print('typedef signed long int I64;', file=f)
+        print('typedef U64 UInt;', file=f)
+        print('typedef I64 Int;', file=f)
 
-for line in structs:
-    print(line)
+        for line in structs:
+            print(line, file=f)
 
-for line in typedefs:
-    print(line)
+        for line in typedefs:
+            print(line, file=f)
 
-for line in forwards:
-    print(line)
+        for line in forwards:
+            print(line, file=f)
 
-for line in output:
-    print(line)
+        for line in output:
+            print(line, file=f)
+
+if make_pkg:
+    with open(os.path.splitext(filename)[0] + '.pkg', 'w') as f:
+        for line in pub_structs:
+            print(line, file=f)
+
+        for line in pub_typedefs:
+            print(line, file=f)
+
+        for line in pub_forwards:
+            print(line, file=f)
+
