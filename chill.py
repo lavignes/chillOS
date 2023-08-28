@@ -72,14 +72,24 @@ def emit_type(ty: Type) -> str:
         for field in ty.fields:
             fields += [f'{emit_type_or_name(field.ty)} {field.name};']
         return f'{{ {"".join(fields)} }}'
-    if isinstance(ty, TypeFn):
-        return fn_ptr_name(ty)
     return f'{ty}'
 
 def emit_type_or_name(ty: Type | Name) -> str:
     if isinstance(ty, Type):
         return emit_type(ty)
     return emit_name(ty)
+
+def emit_type_and_name(ty: Type | Name, name: str, mut: bool) -> str:
+    if isinstance(ty, TypeFn):
+        args = []
+        for arg in ty.args:
+            args += [f'{emit_type_or_name(arg)}']
+        if mut:
+            return f'{emit_type_or_name(ty.rets)}(* const {name})({",".join(args)})'
+        return f'{emit_type_or_name(ty.rets)}(* {name})({",".join(args)})'
+    if mut:
+        return f'{emit_type_or_name(ty.name)} const {name}'
+    return f'{emit_type_or_name(ty.name)} {name}'
 
 PRIMS: Mapping[Name, Type] = {
     Name('*', '()'): TypeUnit(ffi='Unit'),
@@ -228,17 +238,6 @@ class Lexer:
                 i += 1
         t.value = value
         return t
-
-FN_PTRS: Mapping[str, Tuple[str, TypeFn]] = {}
-
-def fn_ptr_name(ty: TypeFn) -> str:
-    args = []
-    for arg in ty.args:
-        args += [f'{emit_type_or_name(arg)}']
-    c_name = f'{emit_type_or_name(ty.rets)}(*)({",".join(args)})'
-    if c_name not in FN_PTRS:
-        FN_PTRS[c_name] = (f'__FnPtrAlias{len(FN_PTRS)}', ty)
-    return FN_PTRS[c_name][0]
 
 class Parser:
     tokens = Lexer.tokens
@@ -485,14 +484,12 @@ class Parser:
         type : FN PAREN_OPEN type_list PAREN_CLOSE
         '''
         p[0] = TypeFn(args=p[3], rets=PRIMS[Name('*', '()')])
-        fn_ptr_name(p[0])
 
     def p_type_9(self, p):
         '''
         type : FN PAREN_OPEN type_list PAREN_CLOSE COLON type
         '''
         p[0] = TypeFn(args=p[3], rets=p[6])
-        fn_ptr_name(p[0])
 
     def p_type_list_1(self, p):
         '''
@@ -1190,21 +1187,12 @@ for item in pkg.items:
         continue
     if isinstance(item, PkgBind):
         if item.pub:
-            if item.mut:
-                forwards += [f'{emit_type_or_name(item.ty)} {emit_name(item.name)};']
-                pub_forwards += [f'extern {emit_type_or_name(item.ty)} {emit_name(item.name)};']
-                output += [f'{emit_type_or_name(item.ty)} {emit_name(item.name)} = {emit_expr(item.val)};']
-            else:
-                forwards += [f'{emit_type_or_name(item.ty)} const {emit_name(item.name)};']
-                pub_forwards += [f'extern {emit_type_or_name(item.ty)} const {emit_name(item.name)};']
-                output += [f'{emit_type_or_name(item.ty)} const {emit_name(item.name)} = {emit_expr(item.val)};']
+            forwards += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+            pub_forwards += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+            output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
         else:
-            if item.mut:
-                forwards += [f'static {emit_type_or_name(item.ty)} {emit_name(item.name)};']
-                output += [f'static {emit_type_or_name(item.ty)} {emit_name(item.name)} = {emit_expr(item.val)};']
-            else:
-                forwards += [f'static {emit_type_or_name(item.ty)} const {emit_name(item.name)};']
-                output += [f'static {emit_type_or_name(item.ty)} const {emit_name(item.name)} = {emit_expr(item.val)};']
+            forwards += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+            output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
         continue
     if isinstance(item, PkgUse) and not make_pkg:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
@@ -1233,12 +1221,6 @@ if not make_pkg:
 
         for line in imports:
             print(line, file=f)
-
-        for (alias, ty) in FN_PTRS.values():
-            args = []
-            for arg in ty.args:
-                args += [f'{emit_type_or_name(arg)}']
-            print(f'typedef {emit_type_or_name(ty.rets)}(* {alias})({",".join(args)});', file=f)
 
         for line in forwards:
             print(line, file=f)
