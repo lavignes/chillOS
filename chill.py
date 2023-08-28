@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 import functools
 import sys
-from typing import Mapping, Optional, cast
+from typing import Mapping, Optional, Tuple, cast
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -48,7 +48,7 @@ class TypeFn(Type):
 class TypeUnit(Type):
     ffi: str
 
-TYPES: Mapping[Name, Type] = {
+PRIMS: Mapping[Name, Type] = {
     Name('*', '()'): TypeUnit(ffi='Unit'),
     Name('*', 'Bool'): TypeInteger(ffi='Bool'),
     Name('*', 'U8'): TypeInteger(ffi='U8'),
@@ -79,7 +79,6 @@ class Lexer:
             'let': 'LET',
             'as': 'AS',
             'use': 'USE',
-            'const': 'CONST',
             'mut': 'MUT',
             'extern': 'EXTERN',
             'type': 'TYPE',
@@ -92,7 +91,9 @@ class Lexer:
             'AMPERSAND', 'PAREN_OPEN', 'PAREN_CLOSE', 'EQUAL', 'DOUBLE_EQUAL', 'LESS_THAN',
             'GREATER_THAN', 'LESS_EQUAL', 'GREATER_EQUAL', 'PIPE', 'COLON', 'SEMI', 'MODULUS',
             'DOT', 'DOUBLE_COLON', 'COMMA', 'STRING', 'SHIFT_LEFT', 'SHIFT_RIGHT', 'AND', 'OR',
-            'NOT_EQUAL']
+            'NOT_EQUAL', 'PLUS_EQUAL', 'MINUS_EQUAL', 'STAR_EQUAL', 'SOLIDUS_EQUAL',
+            'MODULUS_EQUAL', 'SHIFT_LEFT_EQUAL', 'SHIFT_RIGHT_EQUAL', 'AND_EQUAL', 'CARET_EQUAL',
+            'PIPE_EQUAL', 'COMPLEMENT']
 
     t_BRACE_OPEN = r'{'
     t_BRACE_CLOSE = r'}'
@@ -125,6 +126,17 @@ class Lexer:
     t_AND = r'&&'
     t_OR = r'\|\|'
     t_NOT_EQUAL = r'!='
+    t_PLUS_EQUAL = r'\+='
+    t_MINUS_EQUAL = r'-='
+    t_STAR_EQUAL = r'\*='
+    t_SOLIDUS_EQUAL = r'/='
+    t_MODULUS_EQUAL = r'%='
+    t_SHIFT_LEFT_EQUAL = r'<<='
+    t_SHIFT_RIGHT_EQUAL = r'>>='
+    t_AND_EQUAL = r'&='
+    t_CARET_EQUAL = r'^='
+    t_PIPE_EQUAL = r'\|='
+    t_COMPLEMENT = r'~'
 
     t_ignore = ' \r\t'
 
@@ -188,7 +200,8 @@ class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
+        self.scopes = [set()]
 
     def parse(self, text: str) -> 'Pkg':
         lexer = Lexer()
@@ -206,7 +219,8 @@ class Parser:
         ('left', 'PLUS', 'MINUS'),
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
         ('left', 'AS'),
-        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF'),
+        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF', 'COMPLEMENT'),
+        ('left', 'POST_PAREN_OPEN', 'DOT', 'POST_BRACE_OPEN', 'POST_BRACKET_OPEN')
     )
 
     def p_pkg(self, p):
@@ -271,7 +285,7 @@ class Parser:
 
     def p_pkg_item_1(self, p):
         '''
-        pkg_item : PUB pkg_const
+        pkg_item : PUB pkg_bind
                  | PUB pkg_fn
                  | PUB pkg_type
         '''
@@ -280,7 +294,7 @@ class Parser:
 
     def p_pkg_item_2(self, p):
         '''
-        pkg_item : pkg_const
+        pkg_item : pkg_bind
                  | pkg_fn
                  | pkg_type
         '''
@@ -296,25 +310,43 @@ class Parser:
         pkg_item : USE ID SEMI
         '''
 
-    def p_pkg_const(self, p):
+    def p_pkg_bind_1(self, p):
         '''
-        pkg_const : CONST ID COLON type EQUAL expr SEMI
+        pkg_bind : LET ID COLON type EQUAL expr SEMI
         '''
-        p[0] = PkgConst(line=p.lineno(1), name=Name(self.pkg_name, p[2]), ty=p[4], pub=False, val=p[6], attrs=[])
+        name = Name(self.pkg_name, p[2])
+        self.scopes[-1].add(name)
+        p[0] = PkgBind(line=p.lineno(1), name=name, ty=p[4], pub=False, val=p[6], attrs=[], mut=False)
+
+    def p_pkg_bind_2(self, p):
+        '''
+        pkg_bind : LET MUT ID COLON type EQUAL expr SEMI
+        '''
+        name = Name(self.pkg_name, p[3])
+        self.scopes[-1].add(name)
+        p[0] = PkgBind(line=p.lineno(1), name=name, ty=p[5], pub=False, val=p[7], attrs=[], mut=True)
 
     def p_pkg_fn_1(self, p):
         '''
-        pkg_fn : FN ID PAREN_OPEN arg_list PAREN_CLOSE stmt_block
+        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE stmt_block
         '''
         name = Name(self.pkg_name, p[2])
-        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[4], rets=TYPES[Name('*', '()')], stmts=p[6])
+        self.scopes[-1].add(name)
+        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=PRIMS[Name('*', '()')], stmts=p[7])
 
     def p_pkg_fn_2(self, p):
         '''
-        pkg_fn : FN ID PAREN_OPEN arg_list PAREN_CLOSE COLON type stmt_block
+        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE COLON type stmt_block
         '''
         name = Name(self.pkg_name, p[2])
-        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[4], rets=p[7], stmts=p[8])
+        self.scopes[-1].add(name)
+        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=p[8], stmts=p[9])
+
+    def p_begin_scope(self, p):
+        '''
+        begin_scope :
+        '''
+        self.scopes.append(set())
 
     def p_arg_list_1(self, p):
         '''
@@ -326,37 +358,43 @@ class Parser:
         '''
         arg_list : ID COLON type
         '''
+        self.scopes[-1].add(Name('*', p[1]))
         p[0] = [FnArg(name=p[1], ty=p[3], mut=False)]
 
     def p_arg_list_3(self, p):
         '''
         arg_list : ID COLON type COMMA arg_list
         '''
+        self.scopes[-1].add(Name('*', p[1]))
         p[0] = [FnArg(name=p[1], ty=p[3], mut=False)] + p[5]
 
     def p_arg_list_4(self, p):
         '''
         arg_list : MUT ID COLON type
         '''
+        self.scopes[-1].add(Name('*', p[2]))
         p[0] = [FnArg(name=p[2], ty=p[4], mut=True)]
 
     def p_arg_list_5(self, p):
         '''
         arg_list : MUT ID COLON type COMMA arg_list
         '''
+        self.scopes[-1].add(Name('*', p[2]))
         p[0] = [FnArg(name=p[2], ty=p[4], mut=True)] + p[6]
 
     def p_pkg_type(self, p):
         '''
         pkg_type : TYPE ID EQUAL type SEMI
         '''
-        p[0] = PkgType(line=p.lineno(1), name=Name(self.pkg_name, p[2]), ty=p[4], pub=False, attrs=[])
+        name = Name(self.pkg_name, p[2])
+        self.scopes[-1].add(name)
+        p[0] = PkgType(line=p.lineno(1), name=name, ty=p[4], pub=False, attrs=[])
 
     def p_type_1(self, p):
         '''
         type : name
         '''
-        p[0] = TYPES.get(p[1], p[1])
+        p[0] = PRIMS.get(p[1], p[1])
 
     def p_type_2(self, p):
         '''
@@ -392,15 +430,17 @@ class Parser:
         '''
         type : PAREN_OPEN PAREN_CLOSE
         '''
-        p[0] = TYPES[Name('*', '()')]
+        p[0] = PRIMS[Name('*', '()')]
 
     def p_name_1(self, p):
         '''
         name : ID
         '''
-        # TODO: Need to build scope list as we walk down the tree
-        # if ID is in scope, then we should resole to that plain name
-        if Name('*', p[1]) in TYPES:
+        for scope in reversed(self.scopes):
+            if Name('*', p[1]) in scope:
+                p[0] = Name('*', p[1])
+                return
+        if Name('*', p[1]) in PRIMS:
             p[0] = Name('*', p[1])
             return
         p[0] = Name(self.pkg_name, p[1])
@@ -443,9 +483,16 @@ class Parser:
 
     def p_stmt_block(self, p):
         '''
-        stmt_block : BRACE_OPEN stmt_list BRACE_CLOSE
+        stmt_block : BRACE_OPEN stmt_list BRACE_CLOSE end_scope
         '''
+        self.scopes.append(set())
         p[0] = p[2]
+
+    def p_end_scope(self, p):
+        '''
+        end_scope :
+        '''
+        self.scopes.pop()
 
     def p_stmt_list_1(self, p):
         '''
@@ -463,19 +510,21 @@ class Parser:
         '''
         stmt : LET ID COLON type EQUAL expr SEMI
         '''
+        self.scopes[-1].add(Name('*', p[2]))
         p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=p[4], val=p[6], mut=False)
 
     def p_stmt_2(self, p):
         '''
         stmt : LET MUT ID COLON type EQUAL expr SEMI
         '''
+        self.scopes[-1].add(Name('*', p[2]))
         p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=True)
 
     def p_stmt_3(self, p):
         '''
         stmt : RETURN SEMI
         '''
-        p[0] = StmtRet(line=p.lineno(1), val=ExprUnit(ty=TYPES[Name('*', '()')]))
+        p[0] = StmtRet(line=p.lineno(1), val=ExprUnit(ty=PRIMS[Name('*', '()')]))
 
     def p_stmt_4(self, p):
         '''
@@ -491,9 +540,9 @@ class Parser:
 
     def p_stmt_6(self, p):
         '''
-        stmt : CONTINUE DOUBLE_COLON ID SEMI
+        stmt : CONTINUE ID SEMI
         '''
-        p[0] = StmtCont(line=p.lineno(1), label=p[3])
+        p[0] = StmtCont(line=p.lineno(1), label=p[2])
 
     def p_stmt_7(self, p):
         '''
@@ -503,28 +552,39 @@ class Parser:
 
     def p_stmt_8(self, p):
         '''
-        stmt : BREAK DOUBLE_COLON ID SEMI
+        stmt : BREAK ID SEMI
         '''
-        p[0] = StmtBreak(line=p.lineno(1), label=p[3])
+        p[0] = StmtBreak(line=p.lineno(1), label=p[2])
 
     def p_stmt_9(self, p):
         '''
         stmt : if_stmt
              | for_stmt
+             | expr_stmt
         '''
         p[0] = p[1]
 
-    #def p_stmt_10(self, p):
-    #    '''
-    #    stmt : expr EQUAL expr SEMI
-    #    '''
-    #    p[0] = StmtAssign(line=p.lineno(2), lhs=p[1], rhs=p[3])
+    def p_expr_stmt_1(self, p):
+        '''
+        expr_stmt : lvalue_expr EQUAL expr SEMI
+                  | lvalue_expr PLUS_EQUAL expr SEMI
+                  | lvalue_expr MINUS_EQUAL expr SEMI
+                  | lvalue_expr STAR_EQUAL expr SEMI
+                  | lvalue_expr SOLIDUS_EQUAL expr SEMI
+                  | lvalue_expr MODULUS_EQUAL expr SEMI
+                  | lvalue_expr SHIFT_LEFT_EQUAL expr SEMI
+                  | lvalue_expr SHIFT_RIGHT_EQUAL expr SEMI
+                  | lvalue_expr AND_EQUAL expr SEMI
+                  | lvalue_expr CARET_EQUAL expr SEMI
+                  | lvalue_expr PIPE_EQUAL expr SEMI
+        '''
+        p[0] = StmtAssign(line=p.lineno(2), lhs=p[1], op=p[2], rhs=p[3])
 
-    #def p_stmt_11(self, p):
-    #    '''
-    #    stmt : call_expr SEMI
-    #    '''
-    #    p[0] = StmtCall(line=p.lineno(2), expr=p[1])
+    def p_expr_stmt_2(self, p):
+        '''
+        expr_stmt : call_expr SEMI
+        '''
+        p[0] = StmtCall(line=p.lineno(2), expr=p[1])
 
     def p_for_stmt_1(self, p):
         '''
@@ -536,6 +596,7 @@ class Parser:
         '''
         for_stmt : FOR DOUBLE_COLON ID stmt_block
         '''
+        self.scopes[-1].add(Name('*', p[3]))
         p[0] = StmtFor(line=p.lineno(1), expr=None, stmts=p[4], label=p[3])
 
     def p_for_stmt_3(self, p):
@@ -548,6 +609,7 @@ class Parser:
         '''
         for_stmt : FOR DOUBLE_COLON ID expr stmt_block
         '''
+        self.scopes[-1].add(Name('*', p[3]))
         p[0] = StmtFor(line=p.lineno(1), expr=p[4], stmts=p[5], label=p[3])
 
     def p_if_stmt_1(self, p):
@@ -572,19 +634,36 @@ class Parser:
         '''
         if_stmt : IF DOUBLE_COLON ID expr stmt_block
         '''
+        self.scopes[-1].add(Name('*', p[3]))
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[], label=p[3])
 
     def p_if_stmt_5(self, p):
         '''
         if_stmt : IF DOUBLE_COLON ID expr stmt_block ELSE stmt_block
         '''
+        self.scopes[-1].add(Name('*', p[3]))
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=p[7], label=p[3])
 
     def p_if_stmt_6(self, p):
         '''
         if_stmt : IF DOUBLE_COLON ID expr stmt_block ELSE if_stmt
         '''
+        self.scopes[-1].add(Name('*', p[3]))
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[p[7]], label=p[3])
+
+    def p_lvalue_expr_1(self, p):
+        '''
+        lvalue_expr : name_expr
+                    | unary_expr
+                    | field_expr
+        '''
+        p[0] = p[1]
+
+    def p_lvalue_expr_2(self, p):
+        '''
+        lvalue_expr : PAREN_OPEN lvalue_expr PAREN_CLOSE
+        '''
+        p[0] = p[2]
 
     def p_expr_1(self, p):
         '''
@@ -595,6 +674,7 @@ class Parser:
              | cast_expr
              | field_expr
              | sizeof_expr
+             | primary_expr
         '''
         p[0] = p[1]
 
@@ -606,37 +686,25 @@ class Parser:
 
     def p_expr_3(self, p):
         '''
-        expr : name
-        '''
-        p[0] = ExprName(ty=None, name=p[1])
-
-    def p_expr_4(self, p):
-        '''
-        expr : term_expr
-        '''
-        p[0] = p[1]
-
-    def p_expr_5(self, p):
-        '''
         expr : BRACKET_OPEN expr_list BRACKET_CLOSE
         '''
         p[0] = p[2]
 
     def p_index_expr(self, p):
         '''
-        index_expr : expr BRACE_OPEN expr BRACE_CLOSE
+        index_expr : lvalue_expr BRACKET_OPEN expr BRACKET_CLOSE %prec POST_BRACKET_OPEN
         '''
         p[0] = ExprIndex(ty=None, lhs=p[1], rhs=p[3])
 
     def p_field_expr(self, p):
         '''
-        field_expr : expr DOT ID
+        field_expr : lvalue_expr DOT ID
         '''
         p[0] = ExprAccess(ty=None, lhs=p[1], field=p[3])
 
     def p_call_expr_1(self, p):
         '''
-        call_expr : expr PAREN_OPEN expr_list PAREN_CLOSE
+        call_expr : lvalue_expr PAREN_OPEN expr_list PAREN_CLOSE %prec POST_PAREN_OPEN
         '''
         p[0] = ExprCall(ty=None, lhs=p[1], args=p[3])
 
@@ -685,20 +753,21 @@ class Parser:
         '''
         cast_expr : expr AS type
         '''
-        p[0] = ExprCast(ty=TYPES.get(p[3]), expr=p[1], into=p[3])
+        p[0] = ExprCast(ty=PRIMS.get(p[3]), expr=p[1], into=p[3])
 
     def p_sizeof_expr(self, p):
         '''
         sizeof_expr : SIZEOF type
         '''
-        p[0] = ExprSizeof(ty=TYPES[Name('*', 'UInt')], rhs=p[2])
+        p[0] = ExprSizeof(ty=PRIMS[Name('*', 'UInt')], rhs=p[2])
 
     def p_unary_expr_1(self, p):
         '''
         unary_expr : MINUS expr %prec UMINUS
                    | AMPERSAND expr %prec UAMPERSAND
                    | STAR expr %prec USTAR
-                   | BANG expr
+                   | BANG expr %prec BANG
+                   | COMPLEMENT expr %prec COMPLEMENT
         '''
         p[0] = ExprUnaryOp(ty=None, op=p[1], rhs=p[2])
 
@@ -708,23 +777,59 @@ class Parser:
         '''
         p[0] = ExprUnaryOp(ty=None, op=p[1], rhs=p[3])
 
-    def p_term_expr_1(self, p):
+    def p_name_expr(self, p):
         '''
-        term_expr : INTEGER
+        name_expr : name
+        '''
+        p[0] = ExprName(ty=None, name=p[1])
+
+    def p_primary_expr_1(self, p):
+        '''
+        primary_expr : name_expr
+        '''
+        p[0] = p[1]
+
+    def p_prmary_expr_2(self, p):
+        '''
+        primary_expr : INTEGER
         '''
         p[0] = ExprInteger(ty=None, val=p[1])
 
-    def p_term_expr_2(self, p):
+    def p_primary_expr_3(self, p):
         '''
-        term_expr : BOOL
+        primary_expr : BOOL
         '''
-        p[0] = ExprBool(ty=TYPES[Name('*', 'Bool')], val=p[1])
+        p[0] = ExprBool(ty=PRIMS[Name('*', 'Bool')], val=p[1])
 
-    def p_term_expr_3(self, p):
+    def p_primary_expr_4(self, p):
         '''
-        term_expr : STRING
+        primary_expr : STRING
         '''
-        p[0] = ExprString(ty=TypeSlice(ty=TYPES[Name('*', 'U8')], mut=False), val=cast(str, p[1]).encode())
+        p[0] = ExprString(ty=TypeSlice(ty=PRIMS[Name('*', 'U8')], mut=False), val=cast(str, p[1]).encode())
+
+    def p_primary_expr_5(self, p):
+        '''
+        primary_expr : name BRACE_OPEN init_list BRACE_CLOSE %prec POST_BRACE_OPEN
+        '''
+        p[0] = ExprStruct(ty=None, name=p[1], vals=p[3])
+
+    def p_init_list_1(self, p):
+        '''
+        init_list : empty
+        '''
+        p[0] = []
+
+    def p_init_list_2(self, p):
+        '''
+        init_list : ID COLON expr
+        '''
+        p[0] = [(p[1], p[3])]
+
+    def p_init_list_3(self, p):
+        '''
+        init_list : ID COLON expr COMMA init_list
+        '''
+        p[0] = [(p[1], p[3])] + p[5]
 
 @dataclass
 class Pkg:
@@ -739,8 +844,9 @@ class PkgItem(ABC):
     attrs: Sequence[str]
 
 @dataclass
-class PkgConst(PkgItem):
+class PkgBind(PkgItem):
     val: 'Expr'
+    mut: bool
 
 @dataclass
 class FnArg:
@@ -778,6 +884,7 @@ class StmtBind(Stmt):
 @dataclass
 class StmtAssign(Stmt):
     lhs: 'Expr'
+    op: str
     rhs: 'Expr'
 
 @dataclass
@@ -868,19 +975,22 @@ class ExprBool(Expr):
 class ExprString(Expr):
     val: bytes
 
+@dataclass
+class ExprStruct(Expr):
+    name: Name
+    vals: Sequence[Tuple[str, Expr]]
+
 filename=sys.argv[1]
 parser = Parser()
 with open(filename) as f:
     pkg = parser.parse(f.read())
-
-eprint(f'{pkg}')
 
 def emit_name(name: Name) -> str:
     if name.pkg == '*':
         return name.ident
     return f'_ZN{len(name.pkg)}{name.pkg}{len(name.ident)}{name.ident}E'
 
-def emit_type_name(ty: Type) -> str:
+def emit_type(ty: Type) -> str:
     if isinstance(ty, TypeInteger):
         return ty.ffi
     if isinstance(ty, TypePointer):
@@ -893,11 +1003,16 @@ def emit_type_name(ty: Type) -> str:
         return 'Slice'
     if isinstance(ty, TypeUnit):
         return 'Unit'
+    if isinstance(ty, TypeStruct):
+        fields = []
+        for field in ty.fields:
+            fields += [f'{emit_type_or_name(field.ty)} {field.name}']
+        return f'{{ {";".join(fields)} }}'
     return f'{ty}'
 
 def emit_type_or_name(ty: Type | Name) -> str:
     if isinstance(ty, Type):
-        return emit_type_name(ty)
+        return emit_type(ty)
     return emit_name(ty)
 
 def emit_expr(expr: Expr) -> str:
@@ -929,6 +1044,11 @@ def emit_expr(expr: Expr) -> str:
         return f'({emit_expr(expr.lhs)}[{emit_expr(expr.rhs)}])'
     if isinstance(expr, ExprAccess):
         return f'({emit_expr(expr.lhs)}.{expr.field})'
+    if isinstance(expr, ExprStruct):
+        fields = []
+        for field in expr.vals:
+            fields += [f'.{field[0]} = {emit_expr(field[1])}']
+        return f'(({emit_name(expr.name)}){{ {",".join(fields)} }})'
     return f'{expr}'
 
 def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
@@ -969,7 +1089,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             output += [pad + f'{emit_type_or_name(stmt.ty)} const {stmt.name} = {emit_expr(stmt.val)};']
         return output
     if isinstance(stmt, StmtAssign):
-        output += [pad + f'{emit_expr(stmt.lhs)} = {emit_expr(stmt.rhs)};']
+        output += [pad + f'{emit_expr(stmt.lhs)} {stmt.op} {emit_expr(stmt.rhs)};']
         return output
     if isinstance(stmt, StmtFor):
         if stmt.expr is not None:
@@ -991,6 +1111,10 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     return output
 
 output = []
+forwards = []
+typedefs = []
+structs = []
+
 for item in pkg.items:
     output += [f'#line {item.line} "{filename}"']
     if isinstance(item, PkgFn):
@@ -1001,12 +1125,25 @@ for item in pkg.items:
                 s += ' const'
             s += f' {arg.name}'
             args += [s]
+        forwards += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
         output += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
         for stmt in item.stmts:
             output += emit_stmt(stmt, 4)
         output += ['}']
         continue
-
+    if isinstance(item, PkgType):
+        structs += [f'struct {emit_name(item.name)};']
+        typedefs += [f'typedef struct {emit_name(item.name)} {emit_name(item.name)};']
+        output += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
+        continue
+    if isinstance(item, PkgBind):
+        if item.mut:
+            forwards += [f'{emit_type_or_name(item.ty)} {emit_name(item.name)};']
+            output += [f'{emit_type_or_name(item.ty)} {emit_name(item.name)} = {emit_expr(item.val)};']
+        else:
+            forwards += [f'{emit_type_or_name(item.ty)} const {emit_name(item.name)};']
+            output += [f'{emit_type_or_name(item.ty)} const {emit_name(item.name)} = {emit_expr(item.val)};']
+        continue
     eprint(f'{item}')
 
 print('typedef struct{} Unit;')
@@ -1022,6 +1159,15 @@ print('typedef U64 UInt;')
 print('typedef I64 Int;')
 print('typedef struct{ void * const ptr; const UInt const len; } SliceMut;')
 print('typedef struct{ const void * const ptr; UInt const len; } Slice;')
+
+for line in structs:
+    print(line)
+
+for line in typedefs:
+    print(line)
+
+for line in forwards:
+    print(line)
 
 for line in output:
     print(line)

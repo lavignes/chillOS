@@ -1,28 +1,39 @@
 AS := riscv64-unknown-elf-as
+CC := riscv64-unknown-elf-gcc
 LD := riscv64-unknown-elf-ld
 OBJCOPY := riscv64-unknown-elf-objcopy
 
 RUN := qemu-system-riscv64 -M virt -smp 4 -m 2G -serial mon:stdio -bios none -kernel kernel.bin
 
 AS_FLAGS := -I kernel -g -march=rv64ima
+CC_FLAGS := -march=rv64ima -mabi=lp64 -g
 LD_FLAGS := -T kernel.ld
 
-KERNEL_SRC := $(wildcard kernel/*.s)
-KERNEL_OBJ := $(KERNEL_SRC:.s=.o)
+KERNEL_ASM_SRC := $(wildcard kernel/*.s)
+KERNEL_CHL_SRC := $(wildcard kernel/*.chl)
+KERNEL_ASM_OBJ := $(KERNEL_ASM_SRC:.s=.o)
+KERNEL_CHL_OBJ := $(KERNEL_CHL_SRC:.chl=.o)
+KERNEL_C_SRC := $(KERNEL_CHL_SRC:.chl=.c)
 
 all: kernel.bin
 
 %.o: %.s
 	$(AS) $(AS_FLAGS) -c $< -o $@
 
-kernel.elf: $(KERNEL_OBJ)
+%.c: %.chl
+	./chill.py $< > $@
+
+%.o: %.c
+	$(CC) $(CC_FLAGS) -c $< -o $@
+
+kernel.elf: $(KERNEL_ASM_OBJ) $(KERNEL_CHL_OBJ)
 	$(LD) $(LD_FLAGS) $^ -o $@
 
 kernel.bin: kernel.elf
 	$(OBJCOPY) -O binary $< $@
 
 clean:
-	rm -f kernel.bin kernel.elf $(KERNEL_OBJ)
+	rm -f kernel.bin kernel.elf $(KERNEL_ASM_OBJ) $(KERNEL_C_SRC) $(KERNEL_CHL_OBJ) 
 
 run: kernel.bin
 	$(RUN)
