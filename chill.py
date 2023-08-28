@@ -85,11 +85,11 @@ def emit_type_and_name(ty: Type | Name, name: str, mut: bool) -> str:
         for arg in ty.args:
             args += [f'{emit_type_or_name(arg)}']
         if mut:
-            return f'{emit_type_or_name(ty.rets)}(* const {name})({",".join(args)})'
-        return f'{emit_type_or_name(ty.rets)}(* {name})({",".join(args)})'
+            return f'{emit_type_or_name(ty.rets)}(* {name})({",".join(args)})'
+        return f'{emit_type_or_name(ty.rets)}(* const {name})({",".join(args)})'
     if mut:
-        return f'{emit_type_or_name(ty.name)} const {name}'
-    return f'{emit_type_or_name(ty.name)} {name}'
+        return f'{emit_type_or_name(ty.name)} {name}'
+    return f'{emit_type_or_name(ty.name)} const {name}'
 
 PRIMS: Mapping[Name, Type] = {
     Name('*', '()'): TypeUnit(ffi='Unit'),
