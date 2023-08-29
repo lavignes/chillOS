@@ -2,8 +2,16 @@ pkg k;
 
 use k_fdt;
 
+type Foo = {};
+
+let x: [3]: mut Int = [0];
+
 pub fn start(fdt: &k_fdt::Header) {
     let magic: U32 = u32_endian_swap((*fdt).magic);
+
+    let mut f: fn(&k_fdt::Header) = start;
+
+    let x: Foo = Foo of {};
 
     if magic != k_fdt::EXPECTED_MAGIC {
         halt();

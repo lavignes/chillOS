@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 
 from abc import ABC
-from collections.abc import Sequence
 from dataclasses import dataclass
 import functools
 import os
 import sys
-from typing import Mapping, Optional, Tuple, cast
+from typing import Mapping, Optional, Tuple, Union, Sequence, cast
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -28,12 +27,13 @@ class TypeInteger(Type):
 
 @dataclass
 class TypePointer(Type):
-    ty: Type | Name
+    ty: Union[Type, Name]
     mut: bool
 
 @dataclass
-class TypeSlice(Type):
-    ty: Type | Name
+class TypeArray(Type):
+    ty: Union[Type, Name]
+    size: 'Expr'
     mut: bool
 
 @dataclass
@@ -42,54 +42,12 @@ class TypeStruct(Type):
 
 @dataclass
 class TypeFn(Type):
-    args: Sequence[Type | Name]
-    rets: Type | Name
+    args: Sequence[Union[Type, Name]]
+    rets: Union[Type, Name]
 
 @dataclass
 class TypeUnit(Type):
     ffi: str
-
-def emit_name(name: Name) -> str:
-    if name.pkg == '*':
-        return name.ident
-    return f'_ZN{len(name.pkg)}{name.pkg}{len(name.ident)}{name.ident}E'
-
-def emit_type(ty: Type) -> str:
-    if isinstance(ty, TypeInteger):
-        return ty.ffi
-    if isinstance(ty, TypePointer):
-        if ty.mut:
-            return f'{emit_type_or_name(ty.ty)} *'
-        return f'{emit_type_or_name(ty.ty)} const *'
-    if isinstance(ty, TypeSlice):
-        if ty.mut:
-            return 'SliceMut'
-        return 'Slice'
-    if isinstance(ty, TypeUnit):
-        return 'Unit'
-    if isinstance(ty, TypeStruct):
-        fields = []
-        for field in ty.fields:
-            fields += [f'{emit_type_or_name(field.ty)} {field.name};']
-        return f'{{ {"".join(fields)} }}'
-    return f'{ty}'
-
-def emit_type_or_name(ty: Type | Name) -> str:
-    if isinstance(ty, Type):
-        return emit_type(ty)
-    return emit_name(ty)
-
-def emit_type_and_name(ty: Type | Name, name: str, mut: bool) -> str:
-    if isinstance(ty, TypeFn):
-        args = []
-        for arg in ty.args:
-            args += [f'{emit_type_or_name(arg)}']
-        if mut:
-            return f'{emit_type_or_name(ty.rets)}(* {name})({",".join(args)})'
-        return f'{emit_type_or_name(ty.rets)}(* const {name})({",".join(args)})'
-    if mut:
-        return f'{emit_type_or_name(ty.name)} {name}'
-    return f'{emit_type_or_name(ty.name)} const {name}'
 
 PRIMS: Mapping[Name, Type] = {
     Name('*', '()'): TypeUnit(ffi='Unit'),
@@ -127,6 +85,7 @@ class Lexer:
             'type': 'TYPE',
             'pkg': 'PKG',
             'sizeof': 'SIZEOF',
+            'of': 'OF',
     }
 
     tokens = list(reserved.values()) + ['ID', 'INTEGER', 'BOOL', 'BRACE_OPEN', 'BRACE_CLOSE',
@@ -243,7 +202,7 @@ class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
         self.scopes = [set()]
 
     def parse(self, text: str) -> 'Pkg':
@@ -457,15 +416,15 @@ class Parser:
 
     def p_type_4(self, p):
         '''
-        type : AMPERSAND BRACKET_OPEN type BRACKET_CLOSE
+        type : BRACKET_OPEN expr BRACKET_CLOSE COLON type
         '''
-        p[0] = TypeSlice(p[3], mut=False)
+        p[0] = TypeArray(p[5], size=p[2], mut=False)
 
     def p_type_5(self, p):
         '''
-        type : AMPERSAND MUT BRACKET_OPEN type BRACKET_CLOSE
+        type : BRACKET_OPEN expr BRACKET_CLOSE COLON MUT type
         '''
-        p[0] = TypeSlice(p[4], mut=True)
+        p[0] = TypeArray(p[6], size=p[2], mut=True)
 
     def p_type_6(self, p):
         '''
@@ -593,7 +552,7 @@ class Parser:
         '''
         stmt : LET MUT ID COLON type EQUAL expr SEMI
         '''
-        self.scopes[-1].add(Name('*', p[2]))
+        self.scopes[-1].add(Name('*', p[3]))
         p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=True)
 
     def p_stmt_3(self, p):
@@ -747,11 +706,11 @@ class Parser:
         '''
         p[0] = p[2]
 
-    def p_expr_3(self, p):
+    def p_array_expr(self, p):
         '''
-        expr : BRACKET_OPEN expr_list BRACKET_CLOSE
+        call_expr : BRACKET_OPEN expr_list BRACKET_CLOSE %prec PBRACKET_OPEN
         '''
-        p[0] = p[2]
+        p[0] = ExprArray(ty=None, vals=p[2])
 
     def p_index_expr(self, p):
         '''
@@ -862,13 +821,14 @@ class Parser:
         '''
         primary_expr : STRING
         '''
-        p[0] = ExprString(ty=TypeSlice(ty=PRIMS[Name('*', 'U8')], mut=False), val=cast(str, p[1]).encode())
+        val = cast(str, p[1]).encode()
+        p[0] = ExprString(ty=TypeArray(ty=PRIMS[Name('*', 'U8')], size=ExprInteger(ty=PRIMS[Name('*', 'UInt')], val=len(val)), mut=False), val=val)
 
     def p_primary_expr_5(self, p):
         '''
-        primary_expr : BRACE_OPEN name init_list BRACE_CLOSE
+        primary_expr : name OF BRACE_OPEN init_list BRACE_CLOSE
         '''
-        p[0] = ExprStruct(ty=None, name=p[2], vals=p[3])
+        p[0] = ExprStruct(ty=None, name=p[1], vals=p[4])
 
     def p_init_list_1(self, p):
         '''
@@ -904,7 +864,7 @@ class PkgUse(PkgItem):
 @dataclass
 class PkgBind(PkgItem):
     name: Name
-    ty: Type | Name
+    ty: Union[Type, Name]
     pub: bool
     val: 'Expr'
     mut: bool
@@ -912,28 +872,28 @@ class PkgBind(PkgItem):
 @dataclass
 class FnArg:
     name: str
-    ty: Type | Name
+    ty: Union[Type, Name]
     mut: bool
 
 @dataclass
 class Field:
     name: str
-    ty: Type | Name
+    ty: Union[Type, Name]
     pub: bool
 
 @dataclass
 class PkgFn(PkgItem):
     name: Name
-    ty: Type | Name
+    ty: Union[Type, Name]
     pub: bool
     args: Sequence[FnArg]
-    rets: Type | Name
+    rets: Union[Type, Name]
     stmts: Sequence['Stmt']
 
 @dataclass
 class PkgType(PkgItem):
     name: Name
-    ty: Type | Name
+    ty: Union[Type, Name]
     pub: bool
 
 @dataclass
@@ -943,7 +903,7 @@ class Stmt(ABC):
 @dataclass
 class StmtBind(Stmt):
     name: str
-    ty: Type | Name
+    ty: Union[Type, Name]
     val: 'Expr'
     mut: bool
 
@@ -992,7 +952,7 @@ class ExprUnit(Expr):
 
 @dataclass
 class ExprSizeof(Expr):
-    rhs: Type | Name
+    rhs: Union[Type, Name]
 
 @dataclass
 class ExprName(Expr):
@@ -1001,7 +961,7 @@ class ExprName(Expr):
 @dataclass
 class ExprCast(Expr):
     expr: Expr
-    into: Type | Name
+    into: Union[Type, Name]
 
 @dataclass
 class ExprIndex(Expr):
@@ -1046,11 +1006,57 @@ class ExprStruct(Expr):
     name: Name
     vals: Sequence[Tuple[str, Expr]]
 
+@dataclass
+class ExprArray(Expr):
+    vals: Sequence[Expr]
+
 make_pkg = sys.argv[1] == '-p'
 filename = sys.argv[2]
 parser = Parser()
 with open(filename) as f:
     pkg = parser.parse(f.read())
+
+def emit_name(name: Name) -> str:
+    if name.pkg == '*':
+        return name.ident
+    return f'_ZN{len(name.pkg)}{name.pkg}{len(name.ident)}{name.ident}E'
+
+def emit_type(ty: Type) -> str:
+    if isinstance(ty, TypeInteger):
+        return ty.ffi
+    if isinstance(ty, TypePointer):
+        if ty.mut:
+            return f'{emit_type_or_name(ty.ty)} *'
+        return f'{emit_type_or_name(ty.ty)} const *'
+    if isinstance(ty, TypeUnit):
+        return 'Unit'
+    if isinstance(ty, TypeStruct):
+        fields = []
+        for field in ty.fields:
+            fields += [f'{emit_type_or_name(field.ty)} {field.name};']
+        return f'{{ {"".join(fields)} }}'
+    return f'{ty}'
+
+def emit_type_or_name(ty: Union[Type, Name]) -> str:
+    if isinstance(ty, Type):
+        return emit_type(ty)
+    return emit_name(ty)
+
+def emit_type_and_name(ty: Union[Type, Name], name: str, mut: bool) -> str:
+    if isinstance(ty, TypeFn):
+        args = []
+        for arg in ty.args:
+            args += [f'{emit_type_or_name(arg)}']
+        if mut:
+            return f'{emit_type_or_name(ty.rets)}(* {name})({",".join(args)})'
+        return f'{emit_type_or_name(ty.rets)}(* const {name})({",".join(args)})'
+    if isinstance(ty, TypeArray):
+        if mut:
+            return f'{emit_type_or_name(ty.ty)} {name}[{emit_expr(ty.size)}]'
+        return f'{emit_type_or_name(ty.ty)} const {name}[{emit_expr(ty.size)}]'
+    if mut:
+        return f'{emit_type_or_name(ty)} {name}'
+    return f'{emit_type_or_name(ty)} const {name}'
 
 def emit_expr(expr: Expr) -> str:
     if isinstance(expr, ExprUnit):
@@ -1077,6 +1083,11 @@ def emit_expr(expr: Expr) -> str:
         for arg in expr.args:
             args += [emit_expr(arg)]
         return f'({emit_expr(expr.lhs)}({",".join(args)}))'
+    if isinstance(expr, ExprArray):
+        vals = []
+        for val in expr.vals:
+            vals += [emit_expr(val)]
+        return f'{{ {",".join(vals)} }}'
     if isinstance(expr, ExprIndex):
         return f'({emit_expr(expr.lhs)}[{emit_expr(expr.rhs)}])'
     if isinstance(expr, ExprAccess):
@@ -1120,10 +1131,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             output += 'continue;'
         return output;
     if isinstance(stmt, StmtBind):
-        if stmt.mut:
-            output += [pad + f'{emit_type_or_name(stmt.ty)} {stmt.name} = {emit_expr(stmt.val)};']
-        else:
-            output += [pad + f'{emit_type_or_name(stmt.ty)} const {stmt.name} = {emit_expr(stmt.val)};']
+        output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut)} = {emit_expr(stmt.val)};']
         return output
     if isinstance(stmt, StmtAssign):
         output += [pad + f'{emit_expr(stmt.lhs)} {stmt.op} {emit_expr(stmt.rhs)};']
