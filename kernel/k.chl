@@ -1,25 +1,39 @@
 pkg k;
 
-use k_fdt;
+use k_fdt as fdt;
 
 type Foo = {};
 
-let mut x: [3]: mut Int;
+let mut x: [3]: Int = [1, 2, 3];
+let hello: [5]: U8 = "hello";
 
-pub fn start(fdt: &k_fdt::Header) {
+pub fn start(fdt: &fdt::Header) {
     let magic: U32 = u32_endian_swap((*fdt).magic);
 
-    let mut f: fn(&k_fdt::Header) = start;
+    let mut f: fn(&fdt::Header) = start;
 
-    let x: Foo = Foo of {};
+    memset(&mut x, sizeof [3]: Int, 0);
 
-    if magic != k_fdt::EXPECTED_MAGIC {
+    take_array(x);
+
+    if magic != fdt::EXPECTED_MAGIC {
         halt();
     }
 }
 
 pub fn halt() {
     for {}
+}
+
+fn take_array(mut arr: [3]: Int) {
+    arr[0] = 10;
+}
+
+fn memset(ptr: &mut Any, size: UInt, val: U8) {
+    let mut i: UInt = 0;
+    for i < size {
+        *((ptr as &mut U8) + i) = 0;
+    }
 }
 
 fn u32_endian_swap(val: U32): U32 {

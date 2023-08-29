@@ -1,0 +1,20 @@
+pkg alloc;
+
+pub type FnAlloc = fn(&mut Any, UInt, &mut Any): &mut Any;
+pub type FnRealloc = fn(&mut Any, &mut Any, UInt, &mut Any): &mut Any;
+pub type FnDealloc = fn(&mut Any, &mut Any, &mut Any);
+
+pub type VTable = {
+    ctx: &mut Any,
+    alloc: FnAlloc,
+    realloc: FnRealloc,
+    dealloc: FnDealloc,
+};
+
+fn test() {
+    let mut x: FnAlloc;
+
+    let mut foo: U8 = 42;
+
+    x(&mut foo, 0, 0);
+}
