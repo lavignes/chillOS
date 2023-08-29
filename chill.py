@@ -326,6 +326,14 @@ class Parser:
 
     def p_pkg_bind_2(self, p):
         '''
+        pkg_bind : LET MUT ID COLON type SEMI
+        '''
+        name = Name(self.pkg_name, p[3])
+        self.scopes[-1].add(name)
+        p[0] = PkgBind(line=p.lineno(1), name=name, ty=p[5], pub=False, val=None, attrs=[], mut=True)
+
+    def p_pkg_bind_3(self, p):
+        '''
         pkg_bind : LET MUT ID COLON type EQUAL expr SEMI
         '''
         name = Name(self.pkg_name, p[3])
@@ -550,48 +558,55 @@ class Parser:
 
     def p_stmt_2(self, p):
         '''
+        stmt : LET MUT ID COLON type SEMI
+        '''
+        self.scopes[-1].add(Name('*', p[3]))
+        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=None, mut=True)
+
+    def p_stmt_3(self, p):
+        '''
         stmt : LET MUT ID COLON type EQUAL expr SEMI
         '''
         self.scopes[-1].add(Name('*', p[3]))
         p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=True)
 
-    def p_stmt_3(self, p):
+    def p_stmt_4(self, p):
         '''
         stmt : RETURN SEMI
         '''
         p[0] = StmtRet(line=p.lineno(1), val=ExprUnit(ty=PRIMS[Name('*', '()')]))
 
-    def p_stmt_4(self, p):
+    def p_stmt_5(self, p):
         '''
         stmt : RETURN expr SEMI
         '''
         p[0] = StmtRet(line=p.lineno(1), val=p[2])
 
-    def p_stmt_5(self, p):
+    def p_stmt_6(self, p):
         '''
         stmt : CONTINUE SEMI
         '''
         p[0] = StmtCont(line=p.lineno(1), label=None)
 
-    def p_stmt_6(self, p):
+    def p_stmt_7(self, p):
         '''
         stmt : CONTINUE ID SEMI
         '''
         p[0] = StmtCont(line=p.lineno(1), label=p[2])
 
-    def p_stmt_7(self, p):
+    def p_stmt_8(self, p):
         '''
         stmt : BREAK SEMI
         '''
         p[0] = StmtBreak(line=p.lineno(1), label=None)
 
-    def p_stmt_8(self, p):
+    def p_stmt_9(self, p):
         '''
         stmt : BREAK ID SEMI
         '''
         p[0] = StmtBreak(line=p.lineno(1), label=p[2])
 
-    def p_stmt_9(self, p):
+    def p_stmt_10(self, p):
         '''
         stmt : if_stmt
              | for_stmt
@@ -866,7 +881,7 @@ class PkgBind(PkgItem):
     name: Name
     ty: Union[Type, Name]
     pub: bool
-    val: 'Expr'
+    val: Optional['Expr']
     mut: bool
 
 @dataclass
@@ -904,7 +919,7 @@ class Stmt(ABC):
 class StmtBind(Stmt):
     name: str
     ty: Union[Type, Name]
-    val: 'Expr'
+    val: Optional['Expr']
     mut: bool
 
 @dataclass
@@ -1122,16 +1137,19 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         if stmt.label is not None:
             output += [pad + f'goto __label_break_{stmt.label};']
         else:
-            output += 'break;'
+            output += [pad + 'break;']
         return output;
     if isinstance(stmt, StmtCont):
         if stmt.label is not None:
             output += [pad + f'goto __label_continue_{stmt.label};']
         else:
-            output += 'continue;'
+            output += [pad + 'continue;']
         return output;
     if isinstance(stmt, StmtBind):
-        output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut)} = {emit_expr(stmt.val)};']
+        if stmt.val is not None:
+            output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut)} = {emit_expr(stmt.val)};']
+        else:
+            output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut)};']
         return output
     if isinstance(stmt, StmtAssign):
         output += [pad + f'{emit_expr(stmt.lhs)} {stmt.op} {emit_expr(stmt.rhs)};']
@@ -1197,10 +1215,12 @@ for item in pkg.items:
         if item.pub:
             forwards += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
             pub_forwards += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
-            output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+            if item.val is not None:
+                output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
         else:
             forwards += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
-            output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+            if item.val is not None:
+                output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
         continue
     if isinstance(item, PkgUse) and not make_pkg:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:

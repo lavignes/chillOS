@@ -4,7 +4,7 @@ use k_fdt;
 
 type Foo = {};
 
-let x: [3]: mut Int = [0];
+let mut x: [3]: mut Int;
 
 pub fn start(fdt: &k_fdt::Header) {
     let magic: U32 = u32_endian_swap((*fdt).magic);
