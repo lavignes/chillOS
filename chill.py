@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import functools
 import os
 import sys
-from typing import Mapping, Optional, Tuple, Union, Sequence, cast
+from typing import Mapping, Optional, Set, Tuple, Union, Sequence, cast
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -45,23 +45,132 @@ class TypeFn(Type):
     rets: Union[Type, Name]
 
 @dataclass
+class TypeBool(Type):
+    ffi: str
+
+@dataclass
 class TypeUnit(Type):
     ffi: str
 
+@dataclass
+class TypeAny(Type):
+    ffi: str
+
+Unit = TypeUnit(ffi='Unit')
+Bool = TypeBool(ffi='Bool')
+U8 = TypeInteger(ffi='U8')
+I8 = TypeInteger(ffi='I8')
+U16 = TypeInteger(ffi='U16')
+I16 = TypeInteger(ffi='I16')
+U32 = TypeInteger(ffi='U32')
+I32 = TypeInteger(ffi='I32')
+U64 = TypeInteger(ffi='U64')
+I64 = TypeInteger(ffi='I64')
+UInt = TypeInteger(ffi='UInt')
+Int = TypeInteger(ffi='Int')
+Any = TypeAny(ffi='Any')
+
+# very basic and buggy type checker and inference
+# in the real compiler we need to make multiple passes
+# over the AST to infer types correctly. this fails in lots
+# of places besides basic integers and expressions
+def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
+    if expr.ty is not None:
+        return expr.ty
+    if isinstance(expr, ExprIndex):
+        lhs = expr_type(expr.lhs)
+        if isinstance(lhs, TypeArray):
+            expr.ty = lhs.ty
+            return lhs.ty
+        if isinstance(lhs, TypePointer):
+            expr.ty = lhs.ty
+            return lhs.ty
+        return lhs
+    if isinstance(expr, ExprCast):
+        lhs = expr_type(expr.expr)
+        ty = expr.ty
+        if lhs == ty:
+            return lhs
+        if isinstance(lhs, TypeInteger) and isinstance(ty, TypeInteger):
+            return ty
+        if isinstance(lhs, TypePointer) and isinstance(ty, TypePointer) and isinstance(ty.ty, TypeAny):
+            return ty
+        if isinstance(lhs, TypePointer) and isinstance(lhs.ty, TypeAny) and isinstance(ty, TypePointer):
+            return ty
+        raise SyntaxError(f'illegal cast: {lhs} as {ty}')
+    if isinstance(expr, ExprBinOp):
+        lhs = expr_type(expr.lhs)
+        rhs = expr_type(expr.rhs)
+        if not isinstance(lhs, Type) or not isinstance(rhs, Type):
+            return None
+        if expr.op == '+' or expr.op == '-':
+            if isinstance(lhs, TypePointer) and isinstance(rhs, TypeInteger) and rhs.ffi == 'Int':
+                expr.ty = lhs
+                return lhs
+        if expr.op == '<<' or expr.op == '>>':
+            if isinstance(lhs, TypeInteger) and isinstance(rhs, TypeInteger) and rhs.ffi == 'UInt':
+                expr.ty = lhs
+                return lhs
+            raise SyntaxError(f'illegal operation: {lhs} {expr.op} {rhs}')
+        if expr.op in ['==', '!=', '>=', '<=', '<', '>'] and lhs == rhs:
+            expr.ty = Bool
+            return Bool
+        if expr.op in ['&&', '||']:
+            if isinstance(lhs, TypeBool) and lhs == rhs:
+                expr.ty = Bool
+                return Bool
+            raise SyntaxError(f'illegal operation: {lhs} {expr.op} {rhs}')
+        if lhs == rhs:
+            expr.ty = lhs
+            return lhs
+        raise SyntaxError(f'illegal operation: {lhs} {expr.op} {rhs}')
+    if isinstance(expr, ExprUnaryOp):
+        rhs = expr_type(expr.rhs)
+        if not isinstance(rhs, Type):
+            return None
+        if expr.op == '-':
+            if isinstance(rhs, TypePointer):
+                expr.ty = rhs
+                return rhs
+        if expr.op == '!':
+            # use ^ <uint>::MAX to complement ints instead of !
+            if isinstance(rhs, TypeBool):
+                expr.ty = rhs
+                return rhs
+        if expr.op == '*':
+            # TODO: the type of this result should indicate mut or not mut
+            # in fact, I think all exprs might want to store whether they are
+            # mut or perhaps have special cases for lvalues?
+            # it is illegal to perform certain operations on this expr if it
+            # isnt mut, and we're losing that information here.. though we still
+            # have it in the AST, so we can emit the error there! Mutable operation
+            # checking can be done post type-checking!
+            if isinstance(rhs, TypePointer):
+                expr.ty = rhs.ty
+                return rhs
+        if expr.op == '&':
+            expr.ty = TypePointer(rhs, mut=False)
+            return expr.ty
+        if expr.op == '&mut':
+            expr.ty = TypePointer(rhs, mut=True)
+            return expr.ty
+        raise SyntaxError(f'illegal operation: {expr.op} {rhs}')
+    return None
+
 PRIMS: Mapping[Name, Type] = {
-    Name('*', '()'): TypeUnit(ffi='Unit'),
-    Name('*', 'Bool'): TypeInteger(ffi='Bool'),
-    Name('*', 'U8'): TypeInteger(ffi='U8'),
-    Name('*', 'I8'): TypeInteger(ffi='I8'),
-    Name('*', 'U16'): TypeInteger(ffi='U16'),
-    Name('*', 'I16'): TypeInteger(ffi='I16'),
-    Name('*', 'U32'): TypeInteger(ffi='U32'),
-    Name('*', 'I32'): TypeInteger(ffi='I32'),
-    Name('*', 'U64'): TypeInteger(ffi='U64'),
-    Name('*', 'I64'): TypeInteger(ffi='I64'),
-    Name('*', 'UInt'): TypeInteger(ffi='UInt'),
-    Name('*', 'Int'): TypeInteger(ffi='Int'),
-    Name('*', 'Any'): TypeInteger(ffi='Any'),
+    Name('*', '()'): Unit,
+    Name('*', 'Bool'): Bool,
+    Name('*', 'U8'): U8,
+    Name('*', 'I8'): I8,
+    Name('*', 'U16'): U16,
+    Name('*', 'I16'): I16,
+    Name('*', 'U32'): U32,
+    Name('*', 'I32'): I32,
+    Name('*', 'U64'): U64,
+    Name('*', 'I64'): I64,
+    Name('*', 'UInt'): UInt,
+    Name('*', 'Int'): Int,
+    Name('*', 'Any'): Any,
 }
 
 class Lexer:
@@ -94,7 +203,7 @@ class Lexer:
             'DOT', 'DOUBLE_COLON', 'COMMA', 'STRING', 'SHIFT_LEFT', 'SHIFT_RIGHT', 'AND', 'OR',
             'NOT_EQUAL', 'PLUS_EQUAL', 'MINUS_EQUAL', 'STAR_EQUAL', 'SOLIDUS_EQUAL',
             'MODULUS_EQUAL', 'SHIFT_LEFT_EQUAL', 'SHIFT_RIGHT_EQUAL', 'AND_EQUAL', 'CARET_EQUAL',
-            'PIPE_EQUAL', 'COMPLEMENT']
+            'PIPE_EQUAL']
 
     t_BRACE_OPEN = r'{'
     t_BRACE_CLOSE = r'}'
@@ -137,7 +246,6 @@ class Lexer:
     t_AND_EQUAL = r'&='
     t_CARET_EQUAL = r'^='
     t_PIPE_EQUAL = r'\|='
-    t_COMPLEMENT = r'~'
 
     t_ignore = ' \r\t'
 
@@ -159,11 +267,11 @@ class Lexer:
         return t
 
     def t_INTEGER(self, t):
-        r"(0x[0-9a-fA-F]+)|(0b[01]+)|(\d+)|('((\\x[0-9a-fA-F]{2})|[ -~])')"
+        r"(0x[0-9a-fA-F_]+)|(0b[01_]+)|(\d[\d_]*)|('((\\x[0-9a-fA-F]{2})|[ -~])')"
         if cast(str, t.value).startswith('0x'):
-            t.value = int(t.value[2:], base=16)
+            t.value = int(cast(str, t.value[2:]).replace('_', ''), base=16)
         elif cast(str, t.value).startswith('0b'):
-            t.value = int(t.value[2:], base=2)
+            t.value = int(cast(str, t.value[2:]).replace('_', ''), base=2)
         elif cast(str, t.value).startswith("'"):
             t.value = t.value[1:-1]
             if cast(str, t.value).startswith('\\x'):
@@ -171,7 +279,7 @@ class Lexer:
             else:
                 t.value = ord(t.value)
         else:
-            t.value = int(t.value)
+            t.value = int(cast(str, t.value).replace('_', ''))
         return t
 
     def t_BOOL(self, t):
@@ -221,8 +329,8 @@ class Parser:
         ('left', 'PLUS', 'MINUS'),
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
         ('left', 'AS'),
-        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF', 'COMPLEMENT'),
-        ('left', 'PPAREN_OPEN', 'DOT', 'PBRACKET_OPEN')
+        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF'),
+        ('left', 'PAREN_OPEN', 'PPAREN_OPEN', 'DOT', 'PBRACKET_OPEN')
     )
 
     def p_pkg(self, p):
@@ -389,7 +497,7 @@ class Parser:
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = name
-        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=PRIMS[Name('*', '()')], stmts=p[7])
+        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=Unit, stmts=p[7])
 
     def p_pkg_fn_2(self, p):
         '''
@@ -471,9 +579,9 @@ class Parser:
 
     def p_type_4(self, p):
         '''
-        type : BRACKET_OPEN expr BRACKET_CLOSE COLON type
+        type : BRACKET_OPEN type SEMI expr BRACKET_CLOSE
         '''
-        p[0] = TypeArray(p[5], size=p[2])
+        p[0] = TypeArray(p[2], size=p[4])
 
     def p_type_7(self, p):
         '''
@@ -485,13 +593,13 @@ class Parser:
         '''
         type : PAREN_OPEN PAREN_CLOSE
         '''
-        p[0] = PRIMS[Name('*', '()')]
+        p[0] = Unit
 
     def p_type_9(self, p):
         '''
         type : FN PAREN_OPEN type_list PAREN_CLOSE
         '''
-        p[0] = TypeFn(args=p[3], rets=PRIMS[Name('*', '()')])
+        p[0] = TypeFn(args=p[3], rets=Unit)
 
     def p_type_10(self, p):
         '''
@@ -600,6 +708,14 @@ class Parser:
         self.scopes[-1][Name('*', p[2])] = p[4]
         p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=p[4], val=p[6], mut=False)
 
+    def p_stmt_1_1(self, p):
+        '''
+        stmt : LET ID EQUAL expr SEMI
+        '''
+        ty = expr_type(p[4])
+        self.scopes[-1][Name('*', p[2])] = ty
+        p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=cast(Type, ty), val=p[4], mut=False)
+
     def p_stmt_2(self, p):
         '''
         stmt : LET ID COLON type EQUAL BRACE_OPEN init_list BRACE_CLOSE SEMI
@@ -630,6 +746,14 @@ class Parser:
         self.scopes[-1][Name('*', p[3])] = p[5]
         p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=True)
 
+    def p_stmt_5_1(self, p):
+        '''
+        stmt : LET MUT ID EQUAL expr SEMI
+        '''
+        ty = expr_type(p[5])
+        self.scopes[-1][Name('*', p[3])] = ty
+        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=cast(Type, ty), val=p[5], mut=True)
+
     def p_stmt_6(self, p):
         '''
         stmt : LET MUT ID COLON type EQUAL BRACE_OPEN init_list BRACE_CLOSE SEMI
@@ -650,7 +774,7 @@ class Parser:
         '''
         stmt : RETURN SEMI
         '''
-        p[0] = StmtRet(line=p.lineno(1), val=ExprUnit(ty=cast(TypeUnit, PRIMS[Name('*', '()')])))
+        p[0] = StmtRet(line=p.lineno(1), val=ExprUnit(ty=Unit))
 
     def p_stmt_9(self, p):
         '''
@@ -866,7 +990,7 @@ class Parser:
         '''
         sizeof_expr : SIZEOF type
         '''
-        p[0] = ExprSizeof(ty=cast(TypeInteger, PRIMS[Name('*', 'UInt')]), rhs=p[2])
+        p[0] = ExprSizeof(ty=UInt, rhs=p[2])
 
     def p_unary_expr_1(self, p):
         '''
@@ -874,7 +998,6 @@ class Parser:
                    | AMPERSAND expr %prec UAMPERSAND
                    | STAR expr %prec USTAR
                    | BANG expr %prec BANG
-                   | COMPLEMENT expr %prec COMPLEMENT
         '''
         p[0] = ExprUnaryOp(ty=None, op=p[1], rhs=p[2])
 
@@ -882,7 +1005,7 @@ class Parser:
         '''
         unary_expr : AMPERSAND MUT expr %prec UAMPERSAND
         '''
-        p[0] = ExprUnaryOp(ty=None, op=p[1], rhs=p[3])
+        p[0] = ExprUnaryOp(ty=None, op='&mut', rhs=p[3])
 
     def p_primary_expr_1(self, p):
         '''
@@ -890,17 +1013,19 @@ class Parser:
         '''
         p[0] = ExprName(ty=None, name=p[1])
 
-    def p_prmary_expr_2(self, p):
+    def p_primary_expr_2(self, p):
         '''
         primary_expr : INTEGER
         '''
+        # TODO: Need ambiguous integer type that we can resolve to that is not
+        # illegal during type checking
         p[0] = ExprInteger(ty=None, val=p[1])
 
     def p_primary_expr_3(self, p):
         '''
         primary_expr : BOOL
         '''
-        p[0] = ExprBool(ty=PRIMS[Name('*', 'Bool')], val=p[1])
+        p[0] = ExprBool(ty=Bool, val=p[1])
 
     def p_primary_expr_4(self, p):
         '''
@@ -908,8 +1033,8 @@ class Parser:
         '''
         vals = []
         for b in cast(str, p[1]).encode():
-            vals += [ExprInteger(ty=PRIMS[Name('*', 'U8')], val=b)]
-        p[0] = ExprArray(ty=TypeArray(ty=PRIMS[Name('*', 'U8')], size=ExprInteger(ty=PRIMS[Name('*', 'UInt')], val=len(vals))), vals=vals)
+            vals += [ExprInteger(ty=U8, val=b)]
+        p[0] = ExprArray(ty=TypeArray(ty=U8, size=ExprInteger(ty=UInt, val=len(vals))), vals=vals)
 
     def p_init_list_1(self, p):
         '''
@@ -1095,33 +1220,17 @@ parser = Parser()
 with open(filename) as f:
     pkg = parser.parse(f.read())
 
-def expr_type(expr: Expr) -> Optional[Union[Type, Name]]:
-    if expr.ty is not None:
-        return expr.ty
-    if isinstance(expr, ExprIndex):
-        lhs = expr_type(expr.lhs)
-        if isinstance(lhs, TypeArray):
-            expr.ty = lhs.ty
-            return lhs.ty
-        if isinstance(lhs, TypePointer):
-            expr.ty = lhs.ty
-            return lhs.ty
-        return lhs
-    if isinstance(expr, ExprBinOp):
-        lhs = expr_type(expr.lhs)
-        rhs = expr_type(expr.lhs)
-        if lhs is None or rhs is None:
-            return None
-
-    return None
-
-ARRAY_FORWARDS: set[str] = set();
-ARRAY_STRUCTS: set[str] = set();
+ARRAY_FORWARDS: Set[str] = set();
+ARRAY_STRUCTS: Set[str] = set();
 
 def mangle_type_name(ty: Union[Type, Name]) -> str:
     if isinstance(ty, Name):
         return emit_name(ty)
     if isinstance(ty, TypeInteger):
+        return ty.ffi
+    if isinstance(ty, TypeBool):
+        return ty.ffi
+    if isinstance(ty, TypeAny):
         return ty.ffi
     if isinstance(ty, TypePointer):
         if ty.mut:
@@ -1142,6 +1251,10 @@ def emit_name(name: Name) -> str:
 
 def emit_type(ty: Type) -> str:
     if isinstance(ty, TypeInteger):
+        return ty.ffi
+    if isinstance(ty, TypeBool):
+        return ty.ffi
+    if isinstance(ty, TypeAny):
         return ty.ffi
     if isinstance(ty, TypePointer):
         if ty.mut:
@@ -1176,11 +1289,18 @@ def emit_type_and_name(ty: Union[Type, Name], name: str, mut: bool) -> str:
     return f'{emit_type_or_name(ty)} const {name}'
 
 def emit_expr(expr: Expr) -> str:
+    # TODO: expr_type(expr)
+
     if isinstance(expr, ExprUnit):
         return '((Unit){})'
     if isinstance(expr, ExprBinOp):
         return f'({emit_expr(expr.lhs)} {expr.op} {emit_expr(expr.rhs)})'
     if isinstance(expr, ExprUnaryOp):
+        # TODO: these cases may cause problems for unresolved names
+        #if expr.op == '&mut' or expr.op == '&':
+        #    return f'(({emit_type_or_name(cast(Union[Type, Name], expr.ty))}) (& {emit_expr(expr.rhs)}))'
+        if expr.op == '&mut': # for now, emit one that doesn't do const verification :(
+            return f'(& {emit_expr(expr.rhs)})'
         return f'({expr.op} {emit_expr(expr.rhs)})'
     if isinstance(expr, ExprName):
         return emit_name(expr.name)

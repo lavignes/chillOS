@@ -1,0 +1,30 @@
+pkg U32;
+
+pub let MAX: U32 = 0xFFFF_FFFF;
+pub let MIN: U32 = 0x0000_0000;
+pub let BITS: UInt = 32;
+
+pub fn endian_swap(val: U32): U32 {
+    return ((val >> 24) & 0x0000_00FF) |
+           ((val << 8)  & 0x00FF_0000) |
+           ((val >> 8)  & 0x0000_FF00) |
+           ((val << 24) & 0xFF00_0000);
+}
+
+pub fn invert(val: U32): U32 {
+    return val ^ MAX;
+}
+
+pub fn count_zeros(val: U32): UInt {
+    return BITS - count_ones(val);
+}
+
+pub fn count_ones(mut val: U32): UInt {
+    let mut i: UInt = 0;
+    let mut count: UInt = 0;
+    for i < BITS {
+        count += (val & 1) as UInt;
+        val = val >> i;
+        i += 1;
+    }
+}
