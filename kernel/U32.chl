@@ -23,7 +23,7 @@ pub fn count_ones(mut val: U32): UInt {
     let mut i: UInt = 0;
     let mut count: UInt = 0;
     for i < BITS {
-        count += (val & 1) as U32;
+        count += (val & 1) as UInt;
         val = val >> i;
         i += 1;
     }
