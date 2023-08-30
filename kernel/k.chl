@@ -13,8 +13,7 @@ pub fn start(fdt: &fdt::Header) {
 
     let mut f: fn(&fdt::Header) = start;
 
-    let bar: U32 = 0;
-    let foo: U32 = U32::invert(bar);
+    let foo: U32 = U32::log2(hello[1] as U32);
 
     memset(&mut x, sizeof [Int; 3], 0);
 

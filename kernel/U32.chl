@@ -28,3 +28,19 @@ pub fn count_ones(mut val: U32): UInt {
         i += 1;
     }
 }
+
+let LOG2_TABLE: [U32; 32] = [
+     0,  9,  1, 10, 13, 21,  2, 29,
+    11, 14, 16, 18, 22, 25,  3, 30,
+     8, 12, 20, 28, 15, 17, 24,  7,
+    19, 27, 23,  6, 26,  5,  4, 31
+];
+
+pub fn log2(mut val: U32): U32 {
+    val |= val >> 1;
+    val |= val >> 2;
+    val |= val >> 4;
+    val |= val >> 8;
+    val |= val >> 16;
+    return LOG2_TABLE[val * 0x07C4_ACDD >> 27];
+}
