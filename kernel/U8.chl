@@ -10,14 +10,14 @@ pub let ERR_OUT_OF_RANGE: Int = UInt::ERR_OUT_OF_RANGE;
 pub let ERR_MALFORMED: Int = UInt::ERR_MALFORMED;
 
 pub fn parse(into: &mut U8, base: UInt, str: &U8, len: UInt): Int {
-	let mut tmp: UInt;
-	let ret: Int = UInt::parse(&mut tmp, base, str, len);
-	if ret != 0 {
-		return ret;
-	}
-	if tmp > (MAX as UInt) {
-		return ERR_OUT_OF_RANGE;
-	}
-	*into = tmp as U8;
-	return 0;
+    let mut tmp: UInt;
+    let ret: Int = UInt::parse(&mut tmp, base, str, len);
+    if ret != 0 {
+        return ret;
+    }
+    if tmp > (MAX as UInt) {
+        return ERR_OUT_OF_RANGE;
+    }
+    *into = tmp as U8;
+    return 0;
 }

@@ -4,11 +4,11 @@ use Kfdt as fdt;
 use U32;
 
 pub fn start(fdt_start: &Any) {
-	let mut tree: fdt::Tree;
+    let mut tree: fdt::Tree;
 
-	if fdt::init_from_addr(&mut tree, fdt_start) != 0 {
-		halt();
-	}
+    if fdt::init_from_addr(&mut tree, fdt_start) != 0 {
+        halt();
+    }
 }
 
 pub fn halt() {

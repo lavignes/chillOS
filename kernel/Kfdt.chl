@@ -7,36 +7,36 @@ use Ascii;
 pub type Iter = {};
 
 pub type Tree = {
-	structs_addr: &Any,
-	strings_addr: &Any,
-	readonly_mem_map_addr: &Any,
-	root: Iter,
+    structs_addr: &Any,
+    strings_addr: &Any,
+    readonly_mem_map_addr: &Any,
+    root: Iter,
 };
 
 pub let ERR_BAD_MAGIC: Int = -1;
 pub let ERR_BAD_VERSION: Int = -2;
 
 pub fn init_from_addr(tree: &mut Tree, addr: &Any): Int {
-	let mut header: RawHeader;
+    let mut header: RawHeader;
 
-	// all of the data in the fdt is U32BE, we deserialize the header into LE
-	U32::map(
-		&mut header as &mut Any as &mut U32, addr as &U32,
-		sizeof RawHeader / sizeof U32,
-		U32::endian_swap);
+    // all of the data in the fdt is U32BE, we deserialize the header into LE
+    U32::map(
+        &mut header as &mut Any as &mut U32, addr as &U32,
+        sizeof RawHeader / sizeof U32,
+        U32::endian_swap);
 
-	if header.magic != 0xd00dfeed {
-		return ERR_BAD_MAGIC;
-	}
-	if header.last_comp_version != 16 {
-		return ERR_BAD_VERSION;
-	}
+    if header.magic != 0xd00dfeed {
+        return ERR_BAD_MAGIC;
+    }
+    if header.last_comp_version != 16 {
+        return ERR_BAD_VERSION;
+    }
 
-	(*tree).structs_addr = addr + (header.off_dt_struct as UInt);
-	(*tree).strings_addr = addr + (header.off_dt_strings as UInt);
-	(*tree).readonly_mem_map_addr = addr + (header.off_mem_rsvmap as UInt);
+    (*tree).structs_addr = addr + (header.off_dt_struct as UInt);
+    (*tree).strings_addr = addr + (header.off_dt_strings as UInt);
+    (*tree).readonly_mem_map_addr = addr + (header.off_mem_rsvmap as UInt);
 
-	return 0;
+    return 0;
 }
 
 type RawHeader = {
