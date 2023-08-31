@@ -1319,12 +1319,12 @@ def emit_type(ty: Type) -> str:
     if isinstance(ty, TypeStruct):
         fields = []
         for field in ty.fields:
-            fields += [f'{emit_type_or_name(field.ty)} {field.name};']
+            fields += [f'{emit_type_and_name(field.ty, field.name, mut=True)};']
         return f'{{ {"".join(fields)} }}'
     if isinstance(ty, TypeUnion):
         fields = []
         for field in ty.fields:
-            fields += [f'{emit_type_or_name(field.ty)} {field.name};']
+            fields += [f'{emit_type_and_name(field.ty, field.name, mut=True)};']
         return f'{{ {"".join(fields)} }}'
     return f'{ty}'
 
