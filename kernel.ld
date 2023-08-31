@@ -1,4 +1,4 @@
-ENTRY(_kentry);
+ENTRY(_Kentry);
 
 . = 0x80000000;
 

@@ -40,6 +40,10 @@ class TypeStruct(Type):
     fields: Sequence['Field']
 
 @dataclass
+class TypeUnion(Type):
+    fields: Sequence['Field']
+
+@dataclass
 class TypeFn(Type):
     args: Sequence[Union[Type, Name]]
     rets: Union[Type, Name]
@@ -158,7 +162,7 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
     return None
 
 PRIMS: Mapping[Name, Type] = {
-    Name('*', '()'): Unit,
+    Name('*', '{}'): Unit,
     Name('*', 'Bool'): Bool,
     Name('*', 'U8'): U8,
     Name('*', 'I8'): I8,
@@ -194,6 +198,7 @@ class Lexer:
             'type': 'TYPE',
             'pkg': 'PKG',
             'sizeof': 'SIZEOF',
+            'union': 'UNION',
     }
 
     tokens = list(reserved.values()) + ['ID', 'INTEGER', 'BOOL', 'BRACE_OPEN', 'BRACE_CLOSE',
@@ -261,13 +266,53 @@ class Lexer:
         eprint(f'ERROR: {self.inner.lineno}: unexpected character: `{t.value[0]}`')
         self.inner.skip(1)
 
+    def t_BOOL(self, t):
+        r'true|false'
+        if cast(str, t.value) == 'true':
+            t.value = True
+        else:
+            t.value = False
+        return t
+
     def t_ID(self, t):
         r'[a-zA-Z_][a-zA-Z0-9_]*'
         t.type = self.reserved.get(t.value, 'ID')
         return t
 
     def t_INTEGER(self, t):
-        r"(0x[0-9a-fA-F_]+)|(0b[01_]+)|(\d[\d_]*)|('((\\x[0-9a-fA-F]{2})|[ -~])')"
+        r"((0x[0-9a-fA-F][0-9a-fA-F_]*)|(0b[01][01_]*)|(\d[\d_]*)|('((\\x[0-9a-fA-F]{2})|[ -~])'))([iuIU](8|16|32|64)?)?"
+        ty = None
+        if cast(str, t.value).lower().endswith('u8'):
+            t.value = t.value[:-2]
+            ty = U8
+        if cast(str, t.value).lower().endswith('i8'):
+            t.value = t.value[:-2]
+            ty = I8
+        if cast(str, t.value).lower().endswith('u16'):
+            t.value = t.value[:-3]
+            ty = U16
+        if cast(str, t.value).lower().endswith('i16'):
+            t.value = t.value[:-3]
+            ty = I16
+        if cast(str, t.value).lower().endswith('u32'):
+            t.value = t.value[:-3]
+            ty = U32
+        if cast(str, t.value).lower().endswith('i32'):
+            t.value = t.value[:-3]
+            ty = I32
+        if cast(str, t.value).lower().endswith('u64'):
+            t.value = t.value[:-3]
+            ty = U64
+        if cast(str, t.value).lower().endswith('i64'):
+            t.value = t.value[:-3]
+            ty = I64
+        if cast(str, t.value).lower().endswith('u'):
+            t.value = t.value[:-1]
+            ty = UInt
+        if cast(str, t.value).lower().endswith('i'):
+            t.value = t.value[:-1]
+            ty = Int
+
         if cast(str, t.value).startswith('0x'):
             t.value = int(cast(str, t.value[2:]).replace('_', ''), base=16)
         elif cast(str, t.value).startswith('0b'):
@@ -280,14 +325,8 @@ class Lexer:
                 t.value = ord(t.value)
         else:
             t.value = int(cast(str, t.value).replace('_', ''))
-        return t
 
-    def t_BOOL(self, t):
-        r'true|false'
-        if cast(str, t.value) == 'true':
-            t.value = True
-        else:
-            t.value = False
+        t.value = (t.value, ty)
         return t
 
     def t_STRING(self, t):
@@ -311,7 +350,7 @@ class Parser:
     def __init__(self):
         self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
         self.scopes = [dict()]
-        self.aliases = dict()
+        self.aliases = dict() # use foo as bar;
 
     def parse(self, text: str) -> 'Pkg':
         lexer = Lexer()
@@ -330,7 +369,7 @@ class Parser:
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
         ('left', 'AS'),
         ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF'),
-        ('left', 'PAREN_OPEN', 'PPAREN_OPEN', 'DOT', 'PBRACKET_OPEN')
+        ('left', 'PAREN_OPEN', 'DOT')
     )
 
     def p_pkg(self, p):
@@ -441,7 +480,7 @@ class Parser:
 
     def p_pkg_bind_2(self, p):
         '''
-        pkg_bind : LET ID COLON type EQUAL BRACE_OPEN field_list BRACE_CLOSE SEMI
+        pkg_bind : LET ID COLON type EQUAL BRACE_OPEN init_list BRACE_CLOSE SEMI
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = p[4]
@@ -588,6 +627,12 @@ class Parser:
         type : BRACE_OPEN field_list BRACE_CLOSE
         '''
         p[0] = TypeStruct(fields=p[2])
+
+    def p_type_7_1(self, p):
+        '''
+        type : UNION BRACE_OPEN field_list BRACE_CLOSE
+        '''
+        p[0] = TypeUnion(fields=p[3])
 
     def p_type_8(self, p):
         '''
@@ -832,7 +877,7 @@ class Parser:
 
     def p_expr_stmt_2(self, p):
         '''
-        expr_stmt : expr PAREN_OPEN expr_list PAREN_CLOSE SEMI %prec PPAREN_OPEN
+        expr_stmt : expr PAREN_OPEN expr_list PAREN_CLOSE SEMI
         '''
         expr = ExprCall(ty=None, lhs=p[1], args=p[3])
         p[0] = StmtCall(line=p.lineno(2), expr=expr)
@@ -923,7 +968,7 @@ class Parser:
 
     def p_index_expr(self, p):
         '''
-        index_expr : expr BRACKET_OPEN expr BRACKET_CLOSE %prec PBRACKET_OPEN
+        index_expr : expr BRACKET_OPEN expr BRACKET_CLOSE
         '''
         p[0] = ExprIndex(ty=None, lhs=p[1], rhs=p[3])
 
@@ -935,7 +980,7 @@ class Parser:
 
     def p_call_expr(self, p):
         '''
-        call_expr : expr PAREN_OPEN expr_list PAREN_CLOSE %prec PPAREN_OPEN
+        call_expr : expr PAREN_OPEN expr_list PAREN_CLOSE
         '''
         p[0] = ExprCall(ty=None, lhs=p[1], args=p[3])
 
@@ -1019,7 +1064,7 @@ class Parser:
         '''
         # TODO: Need ambiguous integer type that we can resolve to that is not
         # illegal during type checking
-        p[0] = ExprInteger(ty=None, val=p[1])
+        p[0] = ExprInteger(ty=p[1][1], val=p[1][0])
 
     def p_primary_expr_3(self, p):
         '''
@@ -1210,6 +1255,11 @@ class ExprStruct(Expr):
     vals: Sequence[Tuple[str, Expr]]
 
 @dataclass
+class ExprUnion(Expr):
+    ty: Type
+    vals: Sequence[Tuple[str, Expr]]
+
+@dataclass
 class ExprArray(Expr):
     ty: Type
     vals: Sequence[Expr]
@@ -1239,9 +1289,13 @@ def mangle_type_name(ty: Union[Type, Name]) -> str:
     if isinstance(ty, TypeUnit):
         return 'Unit'
     if isinstance(ty, TypeArray):
-        ARRAY_FORWARDS.add(f'struct __arr{emit_expr(ty.size)}{mangle_type_name(ty.ty)};')
-        ARRAY_STRUCTS.add(f'struct __arr{emit_expr(ty.size)}{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __items[{emit_expr(ty.size)}]; }};')
-        return f'__arr{emit_expr(ty.size)}{mangle_type_name(ty.ty)}'
+        size = emit_expr(ty.size)
+        # hack: strip suffix
+        if isinstance(ty.size, ExprInteger) and size.endswith('U') or size.endswith('L'):
+            size = size[:-1]
+        ARRAY_FORWARDS.add(f'struct __arr{size}{mangle_type_name(ty.ty)};')
+        ARRAY_STRUCTS.add(f'struct __arr{size}{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __items[{size}]; }};')
+        return f'__arr{size}{mangle_type_name(ty.ty)}'
     return f'{ty}'
 
 def emit_name(name: Name) -> str:
@@ -1263,6 +1317,11 @@ def emit_type(ty: Type) -> str:
     if isinstance(ty, TypeUnit):
         return 'Unit'
     if isinstance(ty, TypeStruct):
+        fields = []
+        for field in ty.fields:
+            fields += [f'{emit_type_or_name(field.ty)} {field.name};']
+        return f'{{ {"".join(fields)} }}'
+    if isinstance(ty, TypeUnion):
         fields = []
         for field in ty.fields:
             fields += [f'{emit_type_or_name(field.ty)} {field.name};']
@@ -1305,7 +1364,14 @@ def emit_expr(expr: Expr) -> str:
     if isinstance(expr, ExprName):
         return emit_name(expr.name)
     if isinstance(expr, ExprInteger):
-        return f'{expr.val}'
+        suffix = ''
+        ty = expr.ty
+        if isinstance(ty, TypeInteger):
+            if ty.ffi == 'U64' or ty.ffi == 'UInt':
+                suffix = 'U'
+            if ty.ffi == 'I64' or ty.ffi == 'Int':
+                suffix = 'L'
+        return f'{expr.val}{suffix}'
     if isinstance(expr, ExprCast):
         return f'(({emit_type_or_name(expr.ty)}) {emit_expr(expr.expr)})'
     if isinstance(expr, ExprSizeof):
@@ -1334,6 +1400,11 @@ def emit_expr(expr: Expr) -> str:
         for field in expr.vals:
             fields += [f'.{field[0]} = {emit_expr(field[1])}']
         return f'(({emit_type_or_name(expr.ty)}){{ {",".join(fields)} }})'
+    if isinstance(expr, ExprUnion):
+        fields = []
+        for field in expr.vals:
+            fields += [f'.{field[0]} = {emit_expr(field[1])}']
+        return f'(({emit_type_or_name(expr.ty)}){{ {",".join(fields)} }})'
     return f'{expr}'
 
 def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
@@ -1348,7 +1419,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
         if len(stmt.else_stmts) > 0:
-            output += [pad + 'else {{']
+            output += [pad + 'else {']
             for s in stmt.else_stmts:
                 output += emit_stmt(s, indent + 4)
             output += [pad + '}']
@@ -1396,11 +1467,13 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     return output
 
 output = []
-forwards = []
+forward_fns = []
+forward_structs = []
 structs = []
 typedefs = []
-pub_forwards = []
+pub_forward_fns = []
 pub_typedefs = []
+pub_forward_structs = []
 pub_structs = []
 imports = []
 
@@ -1409,16 +1482,13 @@ for item in pkg.items:
     if isinstance(item, PkgFn):
         args = []
         for arg in item.args:
-            if not arg.mut:
-                args += [f'{emit_type_or_name(arg.ty)} const {arg.name}']
-            else:
-                args += [f'{emit_type_or_name(arg.ty)} {arg.name}']
+            args += [f'{emit_type_and_name(arg.ty, arg.name, arg.mut)}']
         if item.pub:
-            forwards += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
-            pub_forwards += [f'extern {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
+            forward_fns += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
+            pub_forward_fns += [f'extern {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
             output += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
         else:
-            forwards += [f'static {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
+            forward_fns += [f'static {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
             output += [f'static {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
         for stmt in item.stmts:
             output += emit_stmt(stmt, 4)
@@ -1426,13 +1496,21 @@ for item in pkg.items:
         continue
     if isinstance(item, PkgType):
         if isinstance(item.ty, TypeStruct):
-            structs += [f'struct {emit_name(item.name)};']
+            forward_structs += [f'struct {emit_name(item.name)};']
             typedefs += [f'typedef struct {emit_name(item.name)} {emit_name(item.name)};']
-            output += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
+            structs += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
             if item.pub:
-                pub_structs += [f'struct {emit_name(item.name)};']
+                pub_forward_structs += [f'struct {emit_name(item.name)};']
                 pub_typedefs += [f'typedef struct {emit_name(item.name)} {emit_name(item.name)};']
-                pub_typedefs += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
+                pub_structs += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
+        elif isinstance(item.ty, TypeUnion):
+            forward_structs += [f'union {emit_name(item.name)};']
+            typedefs += [f'typedef union {emit_name(item.name)} {emit_name(item.name)};']
+            structs += [f'union {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
+            if item.pub:
+                pub_forward_structs += [f'union {emit_name(item.name)};']
+                pub_typedefs += [f'typedef union {emit_name(item.name)} {emit_name(item.name)};']
+                pub_structs += [f'union {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
         elif isinstance(item.ty, TypeFn):
             typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True)};']
             if item.pub:
@@ -1444,12 +1522,12 @@ for item in pkg.items:
         continue
     if isinstance(item, PkgBind):
         if item.pub:
-            forwards += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
-            pub_forwards += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+            forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+            pub_forward_fns += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
             if item.val is not None:
                 output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
         else:
-            forwards += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+            forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
             if item.val is not None:
                 output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
         continue
@@ -1471,9 +1549,10 @@ if not make_pkg:
         print('typedef signed long int I64;', file=f)
         print('typedef U64 UInt;', file=f)
         print('typedef I64 Int;', file=f)
+        print('typedef U8 Bool;', file=f)
         print('typedef void Any;', file=f)
 
-        for line in structs:
+        for line in forward_structs:
             print(line, file=f)
 
         for line in ARRAY_FORWARDS:
@@ -1488,7 +1567,10 @@ if not make_pkg:
         for line in imports:
             print(line, file=f)
 
-        for line in forwards:
+        for line in structs:
+            print(line, file=f)
+
+        for line in forward_fns:
             print(line, file=f)
 
         for line in output:
@@ -1496,12 +1578,15 @@ if not make_pkg:
 
 if make_pkg:
     with open(os.path.splitext(filename)[0] + '.pkg', 'w') as f:
-        for line in pub_structs:
+        for line in pub_forward_structs:
             print(line, file=f)
 
         for line in pub_typedefs:
             print(line, file=f)
 
-        for line in pub_forwards:
+        for line in pub_structs:
+            print(line, file=f)
+
+        for line in pub_forward_fns:
             print(line, file=f)
 

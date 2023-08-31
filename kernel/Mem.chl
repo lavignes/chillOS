@@ -1,20 +1,23 @@
-pkg alloc;
+pkg Mem;
 
 pub type FnAlloc = fn(&mut Any, UInt, &mut Any): &mut Any;
 pub type FnRealloc = fn(&mut Any, &mut Any, UInt, &mut Any): &mut Any;
 pub type FnDealloc = fn(&mut Any, &mut Any, &mut Any);
 
-pub type VTable = {
+pub type AllocTable = {
     ctx: &mut Any,
     alloc: FnAlloc,
     realloc: FnRealloc,
     dealloc: FnDealloc,
 };
 
-fn test() {
-    let mut x: FnAlloc;
+pub fn zero(addr: &mut Any, size: UInt) {
+	set(addr, size, 0);
+}
 
-    let mut foo: U8 = 42;
-
-    x(&mut foo, 0, 0);
+pub fn set(addr: &mut Any, mut size: UInt, val: U8) {
+    for size > 0 {
+		size -= 1;
+        *((addr as &mut U8) + size) = val;
+    }
 }

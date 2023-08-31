@@ -1,0 +1,6 @@
+pkg U8;
+
+pub let MIN: U8 = 0x00u8;
+pub let MAX: U8 = 0xFFu8;
+pub let BITS: UInt = sizeof U8 * 8;
+

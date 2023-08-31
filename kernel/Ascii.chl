@@ -1,0 +1,35 @@
+pkg Ascii;
+
+pub fn is_digit(val: U8): Bool {
+	return (val >= '0') && (val <= '9');
+}
+
+pub fn is_alpha(val: U8): Bool {
+	return is_upper(val) || is_lower(val);
+}
+
+pub fn is_upper(val: U8): Bool {
+	return (val >= 'A') && (val <= 'Z');
+}
+
+pub fn is_lower(val: U8): Bool {
+	return (val >= 'a') && (val <= 'z');
+}
+
+pub fn to_lower(val: U8): U8 {
+	if is_upper(val) {
+		return toggle_case(val);
+	}
+	return val;
+}
+
+pub fn to_upper(val: U8): U8 {
+	if is_lower(val) {
+		return toggle_case(val);
+	}
+	return val;
+}
+
+pub fn toggle_case(val: U8): U8 {
+	return val ^ 32;
+}

@@ -1,16 +1,16 @@
 # vim: ft=riscv sw=8 ts=8 cc=80 noet
 .section .init
 
-.global _kentry
-_kentry:
+.global _Kentry
+_Kentry:
 	csrr t0, mhartid
-	bnez t0, _khartpark
+	bnez t0, _Khartpark
 
 	la sp, _KSTACK_TOP
 	mv a0, a1
-	call _ZN1k5startE
-	call _ZN1k4haltE
+	call _ZN1K5startE
+	tail _ZN1K4haltE
 
-_khartpark:
+_Khartpark:
 	wfi
-	j _khartpark
+	j _Khartpark

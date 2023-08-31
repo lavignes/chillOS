@@ -6,5 +6,5 @@ tui reg all
 focus cmd
 
 file kernel.elf
-break _ZN1k5startE
+break _ZN1K5startE
 target remote localhost:9000

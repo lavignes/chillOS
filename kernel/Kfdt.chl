@@ -1,0 +1,56 @@
+pkg Kfdt;
+
+use U32;
+use UInt;
+use Mem;
+use Ascii;
+
+pub let ERR_BAD_MAGIC: Int = -1;
+pub let ERR_BAD_VERSION: Int = -2;
+
+pub type Iter = {
+};
+
+pub type Tree = {
+	structs_addr: &Any,
+	strings_addr: &Any,
+	readonly_mem_map_addr: &Any,
+	root: Iter,
+};
+
+pub fn init_from_addr(tree: &mut Tree, addr: &Any): Int {
+	let mut header: RawHeader;
+
+	// all of the data in the fdt is U32BE, we deserialize the header into LE
+	U32::map(
+		&mut header as &mut Any as &mut U32, addr as &U32,
+		sizeof RawHeader / sizeof U32,
+		U32::endian_swap);
+
+	if header.magic != 0xd00dfeed {
+		return ERR_BAD_MAGIC;
+	}
+	if header.last_comp_version != 16 {
+		return ERR_BAD_VERSION;
+	}
+
+	(*tree).structs_addr = addr + (header.off_dt_struct as UInt);
+	(*tree).strings_addr = addr + (header.off_dt_strings as UInt);
+	(*tree).readonly_mem_map_addr = addr + (header.off_mem_rsvmap as UInt);
+
+	return 0;
+}
+
+type RawHeader = {
+    magic: U32,
+    totalsize: U32,
+    off_dt_struct: U32,
+    off_dt_strings: U32,
+    off_mem_rsvmap: U32,
+    version: U32,
+    last_comp_version: U32,
+    boot_cpuid_phys: U32,
+    size_dt_strings: U32,
+    size_dt_struct: U32,
+};
+
