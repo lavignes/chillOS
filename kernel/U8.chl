@@ -1,6 +1,22 @@
 pkg U8;
 
+use UInt;
+
 pub let MIN: U8 = 0x00u8;
 pub let MAX: U8 = 0xFFu8;
 pub let BITS: UInt = sizeof U8 * 8;
 
+pub let ERR_OUT_OF_RANGE: Int = -1;
+
+pub fn parse(into: &mut U8, base: UInt, str: &U8, len: UInt): Int {
+	let mut tmp: UInt;
+	let ret: Int = UInt::parse(&mut tmp, base, str, len);
+	if ret != 0 {
+		return ret;
+	}
+	if tmp > (MAX as UInt) {
+		return ERR_OUT_OF_RANGE;
+	}
+	*into = (tmp as U8);
+	return 0;
+}
