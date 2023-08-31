@@ -7,16 +7,16 @@ pub let MIN: UInt = 0x0000_0000_0000_0000u;
 pub let BITS: UInt = sizeof UInt * 8;
 
 pub let ERR_OUT_OF_RANGE: Int = -1;
+pub let ERR_MALFORMED: Int = -2;
 
 pub fn parse(into: &mut UInt, base: UInt, str: &U8, len: UInt): Int {
 	let cutoff: UInt = MAX / base;
 	let cutlim: UInt = MAX % base;
-	let mut overflow: Bool = false;
 	let mut i: UInt = 0;
 
 	*into = 0;
 	for i < len {
-		let mut c: U8 = *(str + i);
+		let mut c: UInt = *(str + i) as UInt;
 
 		if Ascii::is_digit(c) {
 			c -= '0';
@@ -27,28 +27,23 @@ pub fn parse(into: &mut UInt, base: UInt, str: &U8, len: UInt): Int {
 				c -= 'a' - 10;
 			}
 		} else {
-			break;
+			*into = c;
+			return ERR_MALFORMED;
 		}
 
 		if (c as UInt) >= base {
-			break;
+			*into = c;
+			return ERR_MALFORMED;
 		}
 
-		if overflow
-			|| (*into > cutoff)
-			|| ((*into == cutoff) && (c > cutlim)) {
-			overflow = true;
-		} else {
-			overflow = false;
-			*into *= base;
-			*into += c;
+		if (*into > cutoff) || ((*into == cutoff) && (c > cutlim)) {
+			*into = MAX;
+			return ERR_OUT_OF_RANGE;
 		}
 
+		*into *= base;
+		*into += c;
 		i += 1;
-	}
-	if overflow {
-		*into = MAX;
-		return ERR_OUT_OF_RANGE;
 	}
 	return 0;
 }

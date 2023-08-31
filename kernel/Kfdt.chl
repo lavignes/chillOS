@@ -1,15 +1,10 @@
 pkg Kfdt;
 
 use U32;
-use UInt;
 use Mem;
 use Ascii;
 
-pub let ERR_BAD_MAGIC: Int = -1;
-pub let ERR_BAD_VERSION: Int = -2;
-
-pub type Iter = {
-};
+pub type Iter = {};
 
 pub type Tree = {
 	structs_addr: &Any,
@@ -17,6 +12,9 @@ pub type Tree = {
 	readonly_mem_map_addr: &Any,
 	root: Iter,
 };
+
+pub let ERR_BAD_MAGIC: Int = -1;
+pub let ERR_BAD_VERSION: Int = -2;
 
 pub fn init_from_addr(tree: &mut Tree, addr: &Any): Int {
 	let mut header: RawHeader;

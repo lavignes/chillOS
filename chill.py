@@ -1522,10 +1522,25 @@ for item in pkg.items:
         continue
     if isinstance(item, PkgBind):
         if item.pub:
-            forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
-            pub_forward_fns += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
-            if item.val is not None:
-                output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+            if item.mut or item.val is None:
+                forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+                pub_forward_fns += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+                if item.val is not None:
+                    output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+            # TODO: maybe should make dedicated pub const syntax.
+            # another approach I tried was statics, but they create cycles.
+            # the better compiler could detect all transitive imports
+            # during the package building phase. *.pkg should really
+            # be chl files with externs. and transitive externs.
+            # or really they need to be structured data with forwards and
+            # typedefs in separate sections.
+            #elif item.val is not None:
+            #    forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+            #    pub_forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+            #    output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+            elif item.val is not None:
+                pub_forward_fns += [f'#define {emit_name(item.name)} (({emit_type_or_name(item.ty)}) {emit_expr(item.val)})']
+                output += [f'#define {emit_name(item.name)} (({emit_type_or_name(item.ty)}) {emit_expr(item.val)})']
         else:
             forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
             if item.val is not None:
@@ -1551,7 +1566,6 @@ if not make_pkg:
         print('typedef I64 Int;', file=f)
         print('typedef U8 Bool;', file=f)
         print('typedef void Any;', file=f)
-
         for line in forward_structs:
             print(line, file=f)
 
