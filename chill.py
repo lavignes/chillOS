@@ -56,10 +56,6 @@ class TypeBool(Type):
 class TypeUnit(Type):
     ffi: str
 
-@dataclass
-class TypeAny(Type):
-    ffi: str
-
 Unit = TypeUnit(ffi='Unit')
 Bool = TypeBool(ffi='Bool')
 U8 = TypeInteger(ffi='U8')
@@ -72,7 +68,6 @@ U64 = TypeInteger(ffi='U64')
 I64 = TypeInteger(ffi='I64')
 UInt = TypeInteger(ffi='UInt')
 Int = TypeInteger(ffi='Int')
-Any = TypeAny(ffi='Any')
 
 # very basic and buggy type checker and inference
 # in the real compiler we need to make multiple passes
@@ -97,9 +92,9 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
             return lhs
         if isinstance(lhs, TypeInteger) and isinstance(ty, TypeInteger):
             return ty
-        if isinstance(lhs, TypePointer) and isinstance(ty, TypePointer) and isinstance(ty.ty, TypeAny):
+        if isinstance(lhs, TypePointer) and isinstance(ty, TypePointer) and ty.ty == U8:
             return ty
-        if isinstance(lhs, TypePointer) and isinstance(lhs.ty, TypeAny) and isinstance(ty, TypePointer):
+        if isinstance(lhs, TypePointer) and lhs.ty == U8 and isinstance(ty, TypePointer):
             return ty
         raise SyntaxError(f'illegal cast: {lhs} as {ty}')
     if isinstance(expr, ExprBinOp):
@@ -174,7 +169,6 @@ PRIMS: Mapping[Name, Type] = {
     Name('*', 'I64'): I64,
     Name('*', 'UInt'): UInt,
     Name('*', 'Int'): Int,
-    Name('*', 'Any'): Any,
 }
 
 class Lexer:
@@ -1057,7 +1051,14 @@ class Parser:
         '''
         primary_expr : name
         '''
-        p[0] = ExprName(ty=None, name=p[1])
+        ty = None
+        for scope in reversed(self.scopes):
+            if p[1] in scope:
+                ty = scope[p[1]]
+                break
+        if ty is None and p[1] in PRIMS:
+            ty = PRIMS[p[1]]
+        p[0] = ExprName(ty=ty, name=p[1])
 
     def p_primary_expr_2(self, p):
         '''
@@ -1081,6 +1082,19 @@ class Parser:
         for b in cast(str, p[1]).encode():
             vals += [ExprInteger(ty=U8, val=b)]
         p[0] = ExprArray(ty=TypeArray(ty=U8, size=ExprInteger(ty=UInt, val=len(vals))), vals=vals)
+
+    def p_primary_expr_5(self, p):
+        '''
+        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE COLON type stmt_block end_scope
+        '''
+        # TODO: lambdas need a way to restrict their scope only to globals.
+        # will probably create some scope flags or something that indicate that we need
+        # to skip to the global scope if we are searching from a lambda scope
+
+    def p_primary_expr_6(self, p):
+        '''
+        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE stmt_block end_scope
+        '''
 
     def p_init_list_1(self, p):
         '''
@@ -1265,6 +1279,13 @@ class ExprArray(Expr):
     ty: Type
     vals: Sequence[Expr]
 
+@dataclass
+class ExprFn(Expr):
+    ty: Type
+    args: Sequence[FnArg]
+    rets: Union[Type, Name]
+    stmts: Sequence['Stmt']
+
 make_pkg = sys.argv[1] == '-p'
 filename = sys.argv[2]
 parser = Parser()
@@ -1280,8 +1301,6 @@ def mangle_type_name(ty: Union[Type, Name]) -> str:
     if isinstance(ty, TypeInteger):
         return ty.ffi
     if isinstance(ty, TypeBool):
-        return ty.ffi
-    if isinstance(ty, TypeAny):
         return ty.ffi
     if isinstance(ty, TypePointer):
         if ty.mut:
@@ -1304,12 +1323,10 @@ def emit_name(name: Name) -> str:
         return name.ident
     return f'_ZN{len(name.pkg)}{name.pkg}{len(name.ident)}{name.ident}E'
 
-def emit_type(ty: Type) -> str:
+def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
     if isinstance(ty, TypeInteger):
         return ty.ffi
     if isinstance(ty, TypeBool):
-        return ty.ffi
-    if isinstance(ty, TypeAny):
         return ty.ffi
     if isinstance(ty, TypePointer):
         if ty.mut:
@@ -1319,8 +1336,11 @@ def emit_type(ty: Type) -> str:
         return 'Unit'
     if isinstance(ty, TypeStruct):
         fields = []
-        for field in ty.fields:
-            fields += [f'{emit_type_and_name(field.ty, field.name, mut=True)};']
+        for (i, field) in enumerate(ty.fields):
+            if apply_visibility and (hide_all or not field.pub):
+                fields += [f'{emit_type_and_name(field.ty, "__hidden" + str(i), mut=True)};']
+            else:
+                fields += [f'{emit_type_and_name(field.ty, field.name, mut=True)};']
         return f'{{ {"".join(fields)} }}'
     if isinstance(ty, TypeUnion):
         fields = []
@@ -1349,8 +1369,6 @@ def emit_type_and_name(ty: Union[Type, Name], name: str, mut: bool) -> str:
     return f'{emit_type_or_name(ty)} const {name}'
 
 def emit_expr(expr: Expr) -> str:
-    # TODO: expr_type(expr)
-
     if isinstance(expr, ExprUnit):
         return '((Unit){})'
     if isinstance(expr, ExprBinOp):
@@ -1395,6 +1413,8 @@ def emit_expr(expr: Expr) -> str:
     if isinstance(expr, ExprIndex):
         return f'(({emit_expr(expr.lhs)}).__items[{emit_expr(expr.rhs)}])'
     if isinstance(expr, ExprAccess):
+        if isinstance(expr.lhs.ty, TypePointer): # auto deref!
+            return f'({emit_expr(expr.lhs)}->{expr.field})'
         return f'({emit_expr(expr.lhs)}.{expr.field})'
     if isinstance(expr, ExprStruct):
         fields = []
@@ -1500,18 +1520,19 @@ for item in pkg.items:
             forward_structs += [f'struct {emit_name(item.name)};']
             typedefs += [f'typedef struct {emit_name(item.name)} {emit_name(item.name)};']
             structs += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
-            if item.pub:
-                pub_forward_structs += [f'struct {emit_name(item.name)};']
-                pub_typedefs += [f'typedef struct {emit_name(item.name)} {emit_name(item.name)};']
-                pub_structs += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
+            # we always export structs, but hide all of their fields if the whole type is private
+            # this allows public structs to refer to private ones
+            # TODO: in the real compiler we'd just add padding instead
+            pub_forward_structs += [f'struct {emit_name(item.name)};']
+            pub_typedefs += [f'typedef struct {emit_name(item.name)} {emit_name(item.name)};']
+            pub_structs += [f'struct {emit_name(item.name)} {emit_type(cast(Type, item.ty), apply_visibility=True, hide_all=not item.pub)};']
         elif isinstance(item.ty, TypeUnion):
             forward_structs += [f'union {emit_name(item.name)};']
             typedefs += [f'typedef union {emit_name(item.name)} {emit_name(item.name)};']
             structs += [f'union {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
-            if item.pub:
-                pub_forward_structs += [f'union {emit_name(item.name)};']
-                pub_typedefs += [f'typedef union {emit_name(item.name)} {emit_name(item.name)};']
-                pub_structs += [f'union {emit_name(item.name)} {emit_type(cast(Type, item.ty))};']
+            pub_forward_structs += [f'union {emit_name(item.name)};']
+            pub_typedefs += [f'typedef union {emit_name(item.name)} {emit_name(item.name)};']
+            pub_structs += [f'union {emit_name(item.name)} {emit_type(cast(Type, item.ty), apply_visibility=True, hide_all=not item.pub)};']
         elif isinstance(item.ty, TypeFn):
             typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True)};']
             if item.pub:
@@ -1579,7 +1600,6 @@ if not make_pkg:
         print('typedef U64 UInt;', file=f)
         print('typedef I64 Int;', file=f)
         print('typedef U8 Bool;', file=f)
-        print('typedef void Any;', file=f)
         for line in forward_structs:
             print(line, file=f)
 

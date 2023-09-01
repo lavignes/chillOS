@@ -1,33 +1,29 @@
 pkg Mem;
 
-pub type FnAlloc = fn(&mut Any, UInt, &mut Any): &mut Any;
-pub type FnRealloc = fn(&mut Any, &mut Any, UInt, &mut Any): &mut Any;
-pub type FnDealloc = fn(&mut Any, &mut Any, &mut Any);
+pub type FnAlloc = fn(&mut U8, UInt, &mut U8): &mut U8;
+pub type FnRealloc = fn(&mut U8, &mut U8, UInt, &mut U8): &mut U8;
+pub type FnDealloc = fn(&mut U8, &mut U8, &mut U8);
 
 pub type AllocTable = {
-    ctx: &mut Any,
+    ctx: &mut U8,
     alloc: FnAlloc,
     realloc: FnRealloc,
     dealloc: FnDealloc,
 };
 
-pub fn equals(lhs: &Any, rhs: &Any, mut size: UInt): Bool {
+pub fn equals(lhs: &U8, rhs: &U8, mut size: UInt): Bool {
     for size > 0 {
         size -= 1;
-        if *((lhs as &U8) + size) != *((rhs as &U8) + size) {
+        if *(lhs + size) != *(rhs + size) {
             return false;
         }
     }
     return true;
 }
 
-pub fn zero(addr: &mut Any, size: UInt) {
-    set(addr, size, 0);
-}
-
-pub fn set(addr: &mut Any, mut size: UInt, val: U8) {
+pub fn set(addr: &mut U8, mut size: UInt, val: U8) {
     for size > 0 {
         size -= 1;
-        *((addr as &mut U8) + size) = val;
+        *(addr + size) = val;
     }
 }

@@ -31,8 +31,8 @@ pub fn endian_swap(val: U32): U32 {
            ((val << 24) & 0xFF00_0000);
 }
 
-pub fn align_to_next(addr: &Any): &U32 {
-    return addr + ((sizeof U32 - ((addr as UInt) % sizeof U32)) % sizeof U32);
+pub fn align_to_next(addr: &U8): &U32 {
+    return (addr + ((sizeof U32 - ((addr as UInt) % sizeof U32)) % sizeof U32)) as &U32;
 }
 
 pub fn rotate_left(val: U32, amt: UInt): U32 {

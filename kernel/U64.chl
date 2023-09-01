@@ -1,6 +1,5 @@
 pkg U64;
 
-use Ascii;
 use UInt;
 
 pub let MAX: U64 = 0xFFFF_FFFF_FFFF_FFFFu64;

@@ -1,3 +1,6 @@
+// methods of reading Flattended Device Tree (FDT) or DeviceTree Blob (DTB)
+// data fed in from the bootloader.
+// see https://devicetree-specification.readthedocs.io
 pkg Kfdt;
 
 use U8;
@@ -21,7 +24,7 @@ pub type Iter = {
 pub type Tree = {
     structs_addr: &U32,
     strings_addr: &U8,
-    readonly_mem_map_addr: &Any,
+    readonly_mem_map_addr: &U8,
     root: Iter,
 };
 
@@ -29,12 +32,12 @@ pub let ERR_BAD_MAGIC: Int = -1;
 pub let ERR_BAD_VERSION: Int = -2;
 pub let ERR_MALFORMED: Int = -3;
 
-pub fn init_from_addr(tree: &mut Tree, addr: &Any): Int {
+pub fn init_from_addr(tree: &mut Tree, addr: &U8): Int {
     let mut header: RawHeader;
 
     // all of the data in the fdt header is U32BE, we deserialize the header into LE
     U32::map(
-        &mut header as &mut Any as &mut U32, addr as &U32,
+        &mut header as &mut U8 as &mut U32, addr as &U32,
         sizeof RawHeader / sizeof U32,
         U32::endian_swap);
 
@@ -45,11 +48,11 @@ pub fn init_from_addr(tree: &mut Tree, addr: &Any): Int {
         return ERR_BAD_VERSION;
     }
 
-    (*tree).structs_addr = (addr + (header.off_dt_struct as UInt)) as &U32;
-    (*tree).strings_addr = (addr + (header.off_dt_strings as UInt)) as &U8;
-    (*tree).readonly_mem_map_addr = addr + (header.off_mem_rsvmap as UInt);
+    tree.structs_addr = (addr + (header.off_dt_struct as UInt)) as &U32;
+    tree.strings_addr = (addr + (header.off_dt_strings as UInt)) as &U8;
+    tree.readonly_mem_map_addr = addr + (header.off_mem_rsvmap as UInt);
 
-    iter_init(tree, &mut (*tree).root, 0, (*tree).structs_addr);
+    iter_init(tree, &mut tree.root, 0, tree.structs_addr);
     return 0;
 }
 
@@ -58,14 +61,14 @@ pub type Uart = {
     model_name_len: UInt,
 };
 
-fn find_uart(tree: &mut Tree, uart: &mut Uart): Int {
+pub fn find_uart(tree: &mut Tree, uart: &mut Uart): Int {
     // for now, we'll assume a "chosen" uart is defined
     return 0;
 }
 
 fn rewind(iter: &mut Iter) {
-    (*iter).prop = (*iter).first_prop;
-    (*iter).child = (*iter).first_child;
+    iter.prop = iter.first_prop;
+    iter.child = iter.first_child;
 }
 
 let BEGIN_NODE: U32 = 0x0000_0001;
@@ -82,7 +85,7 @@ fn is_not_nop(val: U32): Bool {
 }
 
 fn find_string(tree: &Tree, string_offset: U32, string: &mut &U8, string_len: &mut UInt): Int {
-    *string = ((*tree).strings_addr + (string_offset as UInt)) as &U8;
+    *string = (tree.strings_addr + (string_offset as UInt)) as &U8;
     let string_null_byte_addr: &U8 = U8::find(*string, UInt::MAX, U8::is_zero);
     if string_null_byte_addr == 0 {
         return ERR_MALFORMED;
@@ -93,25 +96,25 @@ fn find_string(tree: &Tree, string_offset: U32, string: &mut &U8, string_len: &m
 
 // starting from a likely NOP/BEGIN_NODE token, walk forward and initialize an Iter
 fn iter_init(tree: &Tree, iter: &mut Iter, parent: &U32, mut tok: &U32): Int {
-    Mem::zero(iter as &mut Any, sizeof Iter);
+    Mem::set(iter as &mut U8, sizeof Iter, 0);
 
     tok = U32::find(tok, UInt::MAX, is_not_nop);
     if (tok == 0) || (U32::endian_swap(*tok) != BEGIN_NODE) {
         return ERR_MALFORMED;
     }
 
-    (*iter).parent = parent;
+    iter.parent = parent;
     // the node name is the next ptr after the BEGIN_NODE
     tok += 1;
-    (*iter).name = tok as &Any as &U8;
+    iter.name = tok as &U8;
     // following the name is possible padding bytes and the next token
-    let name_null_byte_addr: &U8 = U8::find((*iter).name, UInt::MAX, U8::is_zero);
+    let name_null_byte_addr: &U8 = U8::find(iter.name, UInt::MAX, U8::is_zero);
     if name_null_byte_addr == 0 {
         return ERR_MALFORMED;
     }
-    (*iter).name_len = name_null_byte_addr - (*iter).name;
+    iter.name_len = name_null_byte_addr - iter.name;
     // add padding to align to next token
-    tok = U32::align_to_next((name_null_byte_addr + 1) as &Any);
+    tok = U32::align_to_next(name_null_byte_addr + 1);
 
     tok = U32::find(tok, UInt::MAX, is_not_nop);
     if tok == 0 {
@@ -120,8 +123,8 @@ fn iter_init(tree: &Tree, iter: &mut Iter, parent: &U32, mut tok: &U32): Int {
     // after this, we may have a PROP, the BEGIN_NODE of a child, or the END_NODE
     let mut val: U32 = U32::endian_swap(*tok);
     if val == PROP {
-        (*iter).first_prop = tok;
-        (*iter).prop = tok;
+        iter.first_prop = tok;
+        iter.prop = tok;
         // now we need to skip over the prop data and all subsequent props
         for val == PROP {
             tok += 1; // consume PROP token
@@ -135,16 +138,15 @@ fn iter_init(tree: &Tree, iter: &mut Iter, parent: &U32, mut tok: &U32): Int {
             tok += 1; // consume name offset
 
             // if the property is one of #address-cells or #size-cells read them now
-            if (prop_name_len == sizeof PROP_ADDR_CELLS) {
-                if Mem::equals(prop_name as &Any, &(PROP_ADDR_CELLS[0]) as &Any, prop_name_len) {
-                    (*iter).addr_cells = U32::endian_swap(*tok);
-                } else if Mem::equals(prop_name as &Any,
-                    &(PROP_SIZE_CELLS[0]) as &Any, prop_name_len) {
-                    (*iter).size_cells = U32::endian_swap(*tok);
-                }
+            if (prop_name_len == sizeof PROP_ADDR_CELLS)
+                && Mem::equals(prop_name, &(PROP_ADDR_CELLS[0]), prop_name_len) {
+                iter.addr_cells = U32::endian_swap(*tok);
+            } else if (prop_name_len == sizeof PROP_SIZE_CELLS)
+                && Mem::equals(prop_name, &(PROP_SIZE_CELLS[0]), prop_name_len) {
+                iter.size_cells = U32::endian_swap(*tok);
             }
             // skip prop data, align to next token, and skip NOPs
-            tok = U32::align_to_next((tok as &Any) + prop_data_size);
+            tok = U32::align_to_next((tok as &U8) + prop_data_size);
             tok = U32::find(tok, UInt::MAX, is_not_nop);
             if tok == 0 {
                 return ERR_MALFORMED;
@@ -154,8 +156,8 @@ fn iter_init(tree: &Tree, iter: &mut Iter, parent: &U32, mut tok: &U32): Int {
     }
     // we now either have a BEGIN_NODE of a child, or the END_NODE
     if val == BEGIN_NODE {
-        (*iter).first_child = tok;
-        (*iter).child = tok;
+        iter.first_child = tok;
+        iter.child = tok;
     } else if val != END_NODE {
         return ERR_MALFORMED;
     }

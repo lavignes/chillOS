@@ -7,7 +7,8 @@ RUN := qemu-system-riscv64 -M virt -smp 4 -m 2G -serial mon:stdio -bios none -ke
 
 AS_FLAGS := -I kernel -g -march=rv64ima
 CC_FLAGS := -march=rv64ima -mabi=lp64 -g -fPIC -nostdlib -nodefaultlibs -fno-builtin \
-			-Wimplicit -Werror -Wall -Wextra -Wno-unused-function -Wno-unused-parameter
+			-Wimplicit -Werror -Wall -Wextra -Wno-unused-function -Wno-unused-parameter \
+			-Wstrict-aliasing
 LD_FLAGS := -T kernel.ld
 
 KERNEL_ASM_SRC := $(wildcard kernel/*.s)
