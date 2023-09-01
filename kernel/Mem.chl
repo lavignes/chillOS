@@ -11,6 +11,16 @@ pub type AllocTable = {
     dealloc: FnDealloc,
 };
 
+pub fn equals(lhs: &Any, rhs: &Any, mut size: UInt): Bool {
+    for size > 0 {
+        size -= 1;
+        if *((lhs as &U8) + size) != *((rhs as &U8) + size) {
+            return false;
+        }
+    }
+    return true;
+}
+
 pub fn zero(addr: &mut Any, size: UInt) {
     set(addr, size, 0);
 }

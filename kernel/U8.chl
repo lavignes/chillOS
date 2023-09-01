@@ -6,8 +6,20 @@ pub let MIN: U8 = 0x00u8;
 pub let MAX: U8 = 0xFFu8;
 pub let BITS: UInt = sizeof U8 * 8;
 
-pub let ERR_OUT_OF_RANGE: Int = UInt::ERR_OUT_OF_RANGE;
-pub let ERR_MALFORMED: Int = UInt::ERR_MALFORMED;
+pub fn is_zero(val: U8): Bool {
+    return val == 0;
+}
+
+pub fn find(mut items: &U8, mut count: UInt, predicate: fn(U8): Bool): &U8 {
+    for count > 0 {
+        count -= 1;
+        if predicate(*items) {
+            return items;
+        }
+        items += 1;
+    }
+    return 0;
+}
 
 pub fn parse(into: &mut U8, base: UInt, str: &U8, len: UInt): Int {
     let mut tmp: UInt;
@@ -16,7 +28,7 @@ pub fn parse(into: &mut U8, base: UInt, str: &U8, len: UInt): Int {
         return ret;
     }
     if tmp > (MAX as UInt) {
-        return ERR_OUT_OF_RANGE;
+        return UInt::ERR_OUT_OF_RANGE;
     }
     *into = tmp as U8;
     return 0;

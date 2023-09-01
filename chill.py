@@ -536,6 +536,7 @@ class Parser:
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = name
+        p[7] += [StmtRet(line=p.lineno(1), val=ExprUnit(ty=Unit))] # add implied return unit
         p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=Unit, stmts=p[7])
 
     def p_pkg_fn_2(self, p):
@@ -1528,19 +1529,32 @@ for item in pkg.items:
                 if item.val is not None:
                     output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
             # TODO: maybe should make dedicated pub const syntax.
-            # another approach I tried was statics, but they create cycles.
+            # This is me attempting to optimize the output of shared constants.
+            # another approach I tried was exporting statics, but they create cycles.
             # the better compiler could detect all transitive imports
             # during the package building phase. *.pkg should really
             # be chl files with externs. and transitive externs.
             # or really they need to be structured data with forwards and
             # typedefs in separate sections.
+            # we should export constants with their literal values in pkg files
+            # and allow expression evaluation for constants at compile time as the true solution.
             #elif item.val is not None:
             #    forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
             #    pub_forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
             #    output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
-            elif item.val is not None:
-                pub_forward_fns += [f'#define {emit_name(item.name)} (({emit_type_or_name(item.ty)}) {emit_expr(item.val)})']
-                output += [f'#define {emit_name(item.name)} (({emit_type_or_name(item.ty)}) {emit_expr(item.val)})']
+            #elif item.val is not None:
+                # this is naive. but we assume these sorts of constants are simple values or names
+                #if isinstance(item.val, ExprName): # constants that are names
+                #    pub_forward_fns += [f'extern {emit_type_or_name(item.ty)} {emit_expr(item.val)};']
+                #    pub_forward_fns += [f'#define {emit_name(item.name)} ({emit_expr(item.val)})']
+                #else: # constants that are hopefully just expressions
+                #pub_forward_fns += [f'#define {emit_name(item.name)} (({emit_type_or_name(item.ty)}) {emit_expr(item.val)})']
+                #forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+                #output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+            else: # this always "works" but prevents constants from referring to other constants
+                forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+                pub_forward_fns += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+                output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
         else:
             forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
             if item.val is not None:

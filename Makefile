@@ -6,7 +6,8 @@ OBJCOPY := riscv64-unknown-elf-objcopy
 RUN := qemu-system-riscv64 -M virt -smp 4 -m 2G -serial mon:stdio -bios none -kernel kernel.bin
 
 AS_FLAGS := -I kernel -g -march=rv64ima
-CC_FLAGS := -march=rv64ima -mabi=lp64 -g -fPIC -Wimplicit -Werror
+CC_FLAGS := -march=rv64ima -mabi=lp64 -g -fPIC -nostdlib -nodefaultlibs -fno-builtin \
+			-Wimplicit -Werror -Wall -Wextra -Wno-unused-function -Wno-unused-parameter
 LD_FLAGS := -T kernel.ld
 
 KERNEL_ASM_SRC := $(wildcard kernel/*.s)

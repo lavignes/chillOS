@@ -9,6 +9,9 @@ pub fn start(fdt_start: &Any) {
     if fdt::init_from_addr(&mut tree, fdt_start) != 0 {
         halt();
     }
+
+    // now we have the fdt, we're going to hurry and locate the
+    // the boot console device, usually a 16550-style uart
 }
 
 pub fn halt() {

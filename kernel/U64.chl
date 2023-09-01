@@ -7,44 +7,15 @@ pub let MAX: U64 = 0xFFFF_FFFF_FFFF_FFFFu64;
 pub let MIN: U64 = 0x0000_0000_0000_0000u64;
 pub let BITS: U64 = sizeof U64 * 8;
 
-pub let ERR_OUT_OF_RANGE: Int = UInt::ERR_OUT_OF_RANGE;
-pub let ERR_MALFORMED: Int = UInt::ERR_MALFORMED;
-
 pub fn parse(into: &mut U64, base: UInt, str: &U8, len: UInt): Int {
-    let cutoff: U64 = MAX / (base as U64);
-    let cutlim: U64 = MAX % (base as U64);
-    let mut i: UInt = 0;
-
-    *into = 0;
-    for i < len {
-        let mut c: U64 = *(str + i) as U64;
-
-        if Ascii::is_digit(c) {
-            c -= '0';
-        } else if Ascii::is_alpha(c) {
-            if Ascii::is_upper(c) {
-                c -= 'A' - 10;
-            } else {
-                c -= 'a' - 10;
-            }
-        } else {
-            *into = c;
-            return ERR_MALFORMED;
-        }
-
-        if c >= (base as U64) {
-            *into = c;
-            return ERR_MALFORMED;
-        }
-
-        if (*into > cutoff) || ((*into == cutoff) && (c > cutlim)) {
-            *into = MAX;
-            return ERR_OUT_OF_RANGE;
-        }
-
-        *into *= (base as U64);
-        *into += c;
-        i += 1;
+    let mut tmp: UInt;
+    let ret: Int = UInt::parse(&mut tmp, base, str, len);
+    if ret != 0 {
+        return ret;
     }
+    if tmp > (MAX as UInt) {
+        return UInt::ERR_OUT_OF_RANGE;
+    }
+    *into = tmp as U64;
     return 0;
 }

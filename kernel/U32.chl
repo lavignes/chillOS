@@ -6,10 +6,21 @@ pub let MAX: U32 = 0xFFFF_FFFFu32;
 pub let MIN: U32 = 0x0000_0000u32;
 pub let BITS: UInt = sizeof U32 * 8;
 
-pub fn map(dst: &mut U32, src: &U32, mut count: UInt, f: fn(U32): U32) {
+pub fn find(mut items: &U32, mut count: UInt, predicate: fn(U32): Bool): &U32 {
     for count > 0 {
         count -= 1;
-        *(dst + count) = f(*(src + count));
+        if predicate(*items) {
+            return items;
+        }
+        items += 1;
+    }
+    return 0;
+}
+
+pub fn map(dst: &mut U32, src: &U32, mut count: UInt, func: fn(U32): U32) {
+    for count > 0 {
+        count -= 1;
+        *(dst + count) = func(*(src + count));
     }
 }
 
@@ -18,6 +29,10 @@ pub fn endian_swap(val: U32): U32 {
            ((val << 8)  & 0x00FF_0000) |
            ((val >> 8)  & 0x0000_FF00) |
            ((val << 24) & 0xFF00_0000);
+}
+
+pub fn align_to_next(addr: &Any): &U32 {
+    return addr + ((sizeof U32 - ((addr as UInt) % sizeof U32)) % sizeof U32);
 }
 
 pub fn rotate_left(val: U32, amt: UInt): U32 {
@@ -63,9 +78,6 @@ pub fn log2(mut val: U32): U32 {
     return LOG2_TABLE[(val * 0x07C4_ACDD) >> 27];
 }
 
-pub let ERR_OUT_OF_RANGE: Int = UInt::ERR_OUT_OF_RANGE;
-pub let ERR_MALFORMED: Int = UInt::ERR_MALFORMED;
-
 pub fn parse(into: &mut U32, base: UInt, str: &U8, len: UInt): Int {
     let mut tmp: UInt;
     let ret: Int = UInt::parse(&mut tmp, base, str, len);
@@ -73,7 +85,7 @@ pub fn parse(into: &mut U32, base: UInt, str: &U8, len: UInt): Int {
         return ret;
     }
     if tmp > (MAX as UInt) {
-        return ERR_OUT_OF_RANGE;
+        return UInt::ERR_OUT_OF_RANGE;
     }
     *into = tmp as U32;
     return 0;
