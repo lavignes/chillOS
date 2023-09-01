@@ -18,13 +18,13 @@ pub let ERR_OUT_OF_RANGE: Int = -1;
 pub let ERR_MALFORMED: Int = -2;
 
 pub fn parse(into: &mut UInt, base: UInt, str: &U8, len: UInt): Int {
-    let cutoff: UInt = MAX / base;
-    let cutlim: UInt = MAX % base;
-    let mut i: UInt = 0;
+    let cutoff = MAX / base;
+    let cutlim = MAX % base;
+    let mut i = 0u;
 
     *into = 0;
     for i < len {
-        let mut c: UInt = *(str + i) as UInt;
+        let mut c = *(str + i) as UInt;
 
         if Ascii::is_digit(c) {
             c -= '0';

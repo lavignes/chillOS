@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import functools
 import os
 import sys
-from typing import Mapping, Optional, Set, Tuple, Union, Sequence, cast
+from typing import List, Mapping, Optional, Set, Tuple, Union, Sequence, cast
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -1085,16 +1085,19 @@ class Parser:
 
     def p_primary_expr_5(self, p):
         '''
-        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE COLON type stmt_block end_scope
+        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE stmt_block end_scope
         '''
         # TODO: lambdas need a way to restrict their scope only to globals.
         # will probably create some scope flags or something that indicate that we need
         # to skip to the global scope if we are searching from a lambda scope
+        p[6] += [StmtRet(line=p.lineno(1), val=ExprUnit(ty=Unit))] # add implied return unit
+        p[0] = ExprFn(ty=None, args=p[4], rets=Unit, stmts=p[6])
 
     def p_primary_expr_6(self, p):
         '''
-        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE stmt_block end_scope
+        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE COLON type stmt_block end_scope
         '''
+        p[0] = ExprFn(ty=None, args=p[4], rets=p[7], stmts=p[8])
 
     def p_init_list_1(self, p):
         '''
@@ -1281,7 +1284,6 @@ class ExprArray(Expr):
 
 @dataclass
 class ExprFn(Expr):
-    ty: Type
     args: Sequence[FnArg]
     rets: Union[Type, Name]
     stmts: Sequence['Stmt']
@@ -1292,8 +1294,10 @@ parser = Parser()
 with open(filename) as f:
     pkg = parser.parse(f.read())
 
-ARRAY_FORWARDS: Set[str] = set();
-ARRAY_STRUCTS: Set[str] = set();
+ARRAY_FORWARDS: Set[str] = set()
+ARRAY_STRUCTS: Set[str] = set()
+LAMBDA_FORWARDS: List[str] = []
+LAMBDAS: List[str] = []
 
 def mangle_type_name(ty: Union[Type, Name]) -> str:
     if isinstance(ty, Name):
@@ -1426,6 +1430,18 @@ def emit_expr(expr: Expr) -> str:
         for field in expr.vals:
             fields += [f'.{field[0]} = {emit_expr(field[1])}']
         return f'(({emit_type_or_name(expr.ty)}){{ {",".join(fields)} }})'
+    if isinstance(expr, ExprFn):
+        args = []
+        for arg in expr.args:
+            args += [f'{emit_type_and_name(arg.ty, arg.name, arg.mut)}']
+        name = f'__lambda_{str(len(LAMBDAS))}'
+        LAMBDA_FORWARDS.append(f'static {emit_type_or_name(expr.rets)} {name}({",".join(args)});')
+        LAMBDAS.append(f'static {emit_type_or_name(expr.rets)} {name}({",".join(args)}) {{')
+        for stmt in expr.stmts:
+            for line in emit_stmt(stmt, 4):
+                LAMBDAS.append(line)
+        LAMBDAS.append('}')
+        return name
     return f'{expr}'
 
 def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
@@ -1618,7 +1634,13 @@ if not make_pkg:
         for line in structs:
             print(line, file=f)
 
+        for line in LAMBDA_FORWARDS:
+            print(line, file=f)
+
         for line in forward_fns:
+            print(line, file=f)
+
+        for line in LAMBDAS:
             print(line, file=f)
 
         for line in output:

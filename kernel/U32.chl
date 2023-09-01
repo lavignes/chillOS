@@ -52,8 +52,8 @@ pub fn count_zeros(val: U32): UInt {
 }
 
 pub fn count_ones(mut val: U32): UInt {
-    let mut i: UInt = 0;
-    let mut count: UInt = 0;
+    let mut i = 0u;
+    let mut count = 0u;
     for i < BITS {
         count += (val & 1) as UInt;
         val >>= i;
