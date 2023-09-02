@@ -158,9 +158,6 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
         if expr.op == '&mut':
             expr.ty = TypePointer(rhs, mut=True)
             return expr.ty
-        if expr.op == '?' and isinstance(rhs, TypePointer):
-            expr.ty = TypeQPointer(rhs)
-            return expr.ty
         raise SyntaxError(f'illegal operation: {expr.op} {rhs}')
     return None
 
@@ -371,7 +368,7 @@ class Parser:
         ('left', 'PLUS', 'MINUS'),
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
         ('left', 'AS'),
-        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF', 'UQUESTION'),
+        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF'),
         ('left', 'PAREN_OPEN', 'DOT')
     )
 
@@ -1075,11 +1072,23 @@ class Parser:
         '''
         p[0] = ExprBinOp(ty=None, lhs=p[1], op=p[2], rhs=p[3])
 
-    def p_cast_expr(self, p):
+    def p_cast_expr_1(self, p):
         '''
         cast_expr : expr AS type
         '''
         p[0] = ExprCast(ty=p[3], expr=p[1])
+
+    def p_cast_expr_2(self, p):
+        '''
+        cast_expr : expr AS QUESTION type
+        '''
+        p[0] = ExprCast(ty=TypeQPointer(TypePointer(p[3], mut=False)), expr=p[1])
+
+    def p_cast_expr_3(self, p):
+        '''
+        cast_expr : expr AS QUESTION MUT type
+        '''
+        p[0] = ExprCast(ty=TypeQPointer(TypePointer(p[3], mut=True)), expr=p[1])
 
     def p_sizeof_expr(self, p):
         '''
@@ -1091,7 +1100,6 @@ class Parser:
         '''
         unary_expr : MINUS expr %prec UMINUS
                    | AMPERSAND expr %prec UAMPERSAND
-                   | QUESTION expr %prec UQUESTION
                    | STAR expr %prec USTAR
                    | BANG expr %prec BANG
         '''
@@ -1452,9 +1460,6 @@ def emit_expr(expr: Expr) -> str:
         #    return f'(({emit_type_or_name(cast(Union[Type, Name], expr.ty))}) (& {emit_expr(expr.rhs)}))'
         if expr.op == '&mut': # for now, emit one that doesn't do const verification :(
             return f'(& {emit_expr(expr.rhs)})'
-        if expr.op == '?':
-            expr_type(expr)
-            return f'((struct {mangle_type_name(cast(Union[Type, Name], expr.ty))}){{ .__ptr = {emit_expr(expr.rhs)} }})'
         return f'({expr.op} {emit_expr(expr.rhs)})'
     if isinstance(expr, ExprName):
         return emit_name(expr.name)
@@ -1468,6 +1473,10 @@ def emit_expr(expr: Expr) -> str:
                 suffix = 'L'
         return f'{expr.val}{suffix}'
     if isinstance(expr, ExprCast):
+        ty = expr.ty
+        if isinstance(ty, TypeQPointer):
+            expr_type(expr)
+            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__ptr = {emit_expr(expr.expr)} }})'
         return f'(({emit_type_and_name(expr.ty, "", mut=False)}) {emit_expr(expr.expr)})'
     if isinstance(expr, ExprSizeof):
         return f'(sizeof ({emit_type_or_name(expr.rhs)}))'

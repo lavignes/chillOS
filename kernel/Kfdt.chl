@@ -164,13 +164,13 @@ fn next_child(tree: &Tree, iter: &mut Iter, child: &mut Iter): Int {
         val = U32::endian_swap(*tok);
         // we now either have a TOK_BEGIN_NODE of a child, or the TOK_END_NODE
         if val == TOK_BEGIN_NODE {
-            iter.child = ?tok;
+            iter.child = tok as ?U32;
             return 0;
         }
         if val != TOK_END_NODE {
             return ERR_MALFORMED;
         }
-        iter.child = ?(0 as &U32); // zero to indicate we are all done
+        iter.child = 0 as ?U32; // zero to indicate we are all done
     }
     return 0;
 }
@@ -230,8 +230,8 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): Int {
     // after this, we may have a TOK_PROP, the TOK_BEGIN_NODE of a child, or the TOK_END_NODE
     let mut val: U32 = U32::endian_swap(**tok);
     if val == TOK_PROP {
-        iter.first_prop = ?(*tok as &U32);
-        iter.prop = ?(*tok as &U32);
+        iter.first_prop = *tok as ?U32;
+        iter.prop = *tok as ?U32;
         // now we need to skip over the prop data and all subsequent props
         for val == TOK_PROP {
             *tok += 1; // consume TOK_PROP token
@@ -262,8 +262,8 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): Int {
     }
     // we now either have a TOK_BEGIN_NODE of a child, or the TOK_END_NODE
     if val == TOK_BEGIN_NODE {
-        iter.first_child = ?(*tok as &U32);
-        iter.child = ?(*tok as &U32);
+        iter.first_child = *tok as ?U32;
+        iter.child = *tok as ?U32;
     } else if val != TOK_END_NODE {
         return ERR_MALFORMED;
     }
