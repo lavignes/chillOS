@@ -18,9 +18,16 @@ pub fn find(mut items: &U32, mut count: UInt, predicate: fn(U32): Bool): &U32 {
 }
 
 pub fn map(dst: &mut U32, src: &U32, mut count: UInt, func: fn(U32): U32) {
+    // TODO: this is more of an example that this works, but its not saving anyone anything
+    map_ctx(dst, src, count, func as &U8, fn(ctx: &U8, val: U32): U32 {
+        return (ctx as fn(U32): U32)(val);
+    });
+}
+
+pub fn map_ctx(dst: &mut U32, src: &U32, mut count: UInt, ctx: &U8, func: fn(&U8, U32): U32) {
     for count > 0 {
         count -= 1;
-        *(dst + count) = func(*(src + count));
+        *(dst + count) = func(ctx, *(src + count));
     }
 }
 

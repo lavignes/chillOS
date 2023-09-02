@@ -1,2 +1,2 @@
-// simple uart drivers
+// simple uart driver
 pkg Kuart;

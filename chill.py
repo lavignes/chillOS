@@ -53,10 +53,10 @@ class TypeBool(Type):
     ffi: str
 
 @dataclass
-class TypeUnit(Type):
+class TypeNil(Type):
     ffi: str
 
-Unit = TypeUnit(ffi='Unit')
+Nil = TypeNil(ffi='Nil')
 Bool = TypeBool(ffi='Bool')
 U8 = TypeInteger(ffi='U8')
 I8 = TypeInteger(ffi='I8')
@@ -157,7 +157,7 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
     return None
 
 PRIMS: Mapping[Name, Type] = {
-    Name('*', '{}'): Unit,
+    Name('*', 'Nil'): Nil,
     Name('*', 'Bool'): Bool,
     Name('*', 'U8'): U8,
     Name('*', 'I8'): I8,
@@ -530,8 +530,8 @@ class Parser:
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = name
-        p[7] += [StmtRet(line=p.lineno(1), val=ExprUnit(ty=Unit))] # add implied return unit
-        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=Unit, stmts=p[7])
+        p[7] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
+        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=Nil, stmts=p[7])
 
     def p_pkg_fn_2(self, p):
         '''
@@ -633,13 +633,13 @@ class Parser:
         '''
         type : PAREN_OPEN PAREN_CLOSE
         '''
-        p[0] = Unit
+        p[0] = Nil
 
     def p_type_9(self, p):
         '''
         type : FN PAREN_OPEN type_list PAREN_CLOSE
         '''
-        p[0] = TypeFn(args=p[3], rets=Unit)
+        p[0] = TypeFn(args=p[3], rets=Nil)
 
     def p_type_10(self, p):
         '''
@@ -814,7 +814,7 @@ class Parser:
         '''
         stmt : RETURN SEMI
         '''
-        p[0] = StmtRet(line=p.lineno(1), val=ExprUnit(ty=Unit))
+        p[0] = StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))
 
     def p_stmt_9(self, p):
         '''
@@ -1090,8 +1090,8 @@ class Parser:
         # TODO: lambdas need a way to restrict their scope only to globals.
         # will probably create some scope flags or something that indicate that we need
         # to skip to the global scope if we are searching from a lambda scope
-        p[6] += [StmtRet(line=p.lineno(1), val=ExprUnit(ty=Unit))] # add implied return unit
-        p[0] = ExprFn(ty=None, args=p[4], rets=Unit, stmts=p[6])
+        p[6] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
+        p[0] = ExprFn(ty=None, args=p[4], rets=Nil, stmts=p[6])
 
     def p_primary_expr_6(self, p):
         '''
@@ -1216,8 +1216,8 @@ class Expr(ABC):
     ty: Optional[Union[Type, Name]]
 
 @dataclass
-class ExprUnit(Expr):
-    ty: TypeUnit
+class ExprNil(Expr):
+    ty: TypeNil
 
 @dataclass
 class ExprSizeof(Expr):
@@ -1310,8 +1310,8 @@ def mangle_type_name(ty: Union[Type, Name]) -> str:
         if ty.mut:
             return f'__mutptr{mangle_type_name(ty.ty)}'
         return f'__ptr{mangle_type_name(ty.ty)}'
-    if isinstance(ty, TypeUnit):
-        return 'Unit'
+    if isinstance(ty, TypeNil):
+        return ty.ffi
     if isinstance(ty, TypeArray):
         size = emit_expr(ty.size)
         # hack: strip suffix
@@ -1336,8 +1336,8 @@ def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
         if ty.mut:
             return f'{emit_type_or_name(ty.ty)} *'
         return f'{emit_type_or_name(ty.ty)} const *'
-    if isinstance(ty, TypeUnit):
-        return 'Unit'
+    if isinstance(ty, TypeNil):
+        return ty.ffi
     if isinstance(ty, TypeStruct):
         fields = []
         for (i, field) in enumerate(ty.fields):
@@ -1373,8 +1373,8 @@ def emit_type_and_name(ty: Union[Type, Name], name: str, mut: bool) -> str:
     return f'{emit_type_or_name(ty)} const {name}'
 
 def emit_expr(expr: Expr) -> str:
-    if isinstance(expr, ExprUnit):
-        return '((Unit){})'
+    if isinstance(expr, ExprNil):
+        return '((Nil){})'
     if isinstance(expr, ExprBinOp):
         return f'({emit_expr(expr.lhs)} {expr.op} {emit_expr(expr.rhs)})'
     if isinstance(expr, ExprUnaryOp):
@@ -1396,7 +1396,7 @@ def emit_expr(expr: Expr) -> str:
                 suffix = 'L'
         return f'{expr.val}{suffix}'
     if isinstance(expr, ExprCast):
-        return f'(({emit_type_or_name(expr.ty)}) {emit_expr(expr.expr)})'
+        return f'(({emit_type_and_name(expr.ty, "", mut=False)}) {emit_expr(expr.expr)})'
     if isinstance(expr, ExprSizeof):
         return f'(sizeof ({emit_type_or_name(expr.rhs)}))'
     if isinstance(expr, ExprBool):
@@ -1604,7 +1604,7 @@ for item in pkg.items:
 
 if not make_pkg:
     with open(os.path.splitext(filename)[0] + '.c', 'w') as f:
-        print('typedef struct{} Unit;', file=f)
+        print('typedef struct{} Nil;', file=f)
         print('typedef unsigned char U8;', file=f)
         print('typedef signed char I8;', file=f)
         print('typedef unsigned short U16;', file=f)

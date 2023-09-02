@@ -11,7 +11,10 @@ pub fn start(fdt_start: &U8) {
         halt();
     }
 
-    let x: U32 = (fn(): U32 { return 2; })();
+    let mut uart: Kfdt::Uart;
+    if Kfdt::find_uart(&mut tree, &mut uart) != 0 {
+        halt();
+    }
 
     // now we have the fdt, we're going to hurry and locate the
     // the boot console device, usually a 16550-style uart

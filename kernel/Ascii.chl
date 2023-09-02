@@ -1,5 +1,20 @@
 pkg Ascii;
 
+pub fn z_compare(mut lhs: &U8, mut rhs: &U8): Int {
+    let mut c1: U8;
+    let mut c2: U8;
+    for {
+        c1 = *lhs;
+        c2 = *rhs;
+        if (c1 == 0) || (c1 != c2) {
+            break;
+        }
+        lhs += 1;
+        rhs += 1;
+    }
+    return c1 - c2;
+}
+
 pub fn is_digit(val: U8): Bool {
     return (val >= '0') && (val <= '9');
 }
