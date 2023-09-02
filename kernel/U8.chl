@@ -10,15 +10,15 @@ pub fn is_zero(val: U8): Bool {
     return val == 0;
 }
 
-pub fn find(mut items: &U8, mut count: UInt, predicate: fn(U8): Bool): &U8 {
+pub fn find(mut items: &U8, mut count: UInt, predicate: fn(U8): Bool): ?U8 {
     for count > 0 {
         count -= 1;
         if predicate(*items) {
-            return items;
+            return ?items;
         }
         items += 1;
     }
-    return 0;
+    return ?(0 as &U8);
 }
 
 pub fn parse(into: &mut U8, base: UInt, str: &U8, len: UInt): Int {

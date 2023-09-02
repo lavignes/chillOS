@@ -3,6 +3,7 @@
 from abc import ABC
 from dataclasses import dataclass
 import functools
+import json
 import os
 import sys
 from typing import List, Mapping, Optional, Set, Tuple, Union, Sequence, cast
@@ -1535,6 +1536,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
         return output
     if isinstance(stmt, StmtIfLet):
+        output += [pad + '{']
         output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
         output += [pad + f'if ({stmt.bind.name}) {{']
         for s in stmt.stmts:
@@ -1547,6 +1549,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             output += [pad + '}']
         if stmt.label is not None:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
+        output += [pad + '}']
         return output
     if isinstance(stmt, StmtBreak):
         if stmt.label is not None:
@@ -1588,16 +1591,15 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     output += [f'{stmt}']
     return output
 
-output = []
-forward_fns = []
-forward_structs = []
-structs = []
-typedefs = []
-pub_forward_fns = []
-pub_typedefs = []
-pub_forward_structs = []
-pub_structs = []
-imports = []
+output: List[str] = []
+forward_fns: List[str] = []
+forward_structs: List[str] = []
+structs: List[str] = []
+typedefs: List[str] = []
+pub_forward_fns: List[str] = []
+pub_typedefs: List[str] = []
+pub_forward_structs: List[str] = []
+pub_structs: List[str] = []
 
 for item in pkg.items:
     output += [f'#line {item.line} "{filename}"']
@@ -1684,7 +1686,13 @@ for item in pkg.items:
         continue
     if isinstance(item, PkgUse) and not make_pkg:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
-            imports += f.readlines()
+            pkg = json.load(fp=f)
+            QPOINTER_FORWARDS.update(pkg['forward_qptrs'])
+            QPOINTER_STRUCTS.update(pkg['qptr_structs'])
+            forward_structs += pkg['forward_structs']
+            typedefs += pkg['typedefs']
+            structs += pkg['structs']
+            forward_fns += pkg['forward_fns']
         continue
 
 if not make_pkg:
@@ -1719,9 +1727,6 @@ if not make_pkg:
         for line in typedefs:
             print(line, file=f)
 
-        for line in imports:
-            print(line, file=f)
-
         for line in structs:
             print(line, file=f)
 
@@ -1738,22 +1743,13 @@ if not make_pkg:
             print(line, file=f)
 
 if make_pkg:
+    pkg = {
+        'forward_qptrs': list(QPOINTER_FORWARDS),
+        'forward_structs': pub_forward_structs,
+        'typedefs': pub_typedefs,
+        'qptr_structs': list(QPOINTER_STRUCTS),
+        'structs': pub_structs,
+        'forward_fns': pub_forward_fns
+    }
     with open(os.path.splitext(filename)[0] + '.pkg', 'w') as f:
-        for line in pub_forward_structs:
-            print(line, file=f)
-
-        for line in QPOINTER_FORWARDS:
-            print(line, file=f)
-
-        for line in QPOINTER_STRUCTS:
-            print(line, file=f)
-
-        for line in pub_typedefs:
-            print(line, file=f)
-
-        for line in pub_structs:
-            print(line, file=f)
-
-        for line in pub_forward_fns:
-            print(line, file=f)
-
+        json.dump(pkg, fp=f)
