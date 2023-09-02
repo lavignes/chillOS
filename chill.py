@@ -31,6 +31,10 @@ class TypePointer(Type):
     mut: bool
 
 @dataclass
+class TypeQPointer(Type):
+    ty: TypePointer
+
+@dataclass
 class TypeArray(Type):
     ty: Union[Type, Name]
     size: 'Expr'
@@ -153,6 +157,9 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
         if expr.op == '&mut':
             expr.ty = TypePointer(rhs, mut=True)
             return expr.ty
+        if expr.op == '?' and isinstance(rhs, TypePointer):
+            expr.ty = TypeQPointer(rhs)
+            return expr.ty
         raise SyntaxError(f'illegal operation: {expr.op} {rhs}')
     return None
 
@@ -202,7 +209,7 @@ class Lexer:
             'DOT', 'DOUBLE_COLON', 'COMMA', 'STRING', 'SHIFT_LEFT', 'SHIFT_RIGHT', 'AND', 'OR',
             'NOT_EQUAL', 'PLUS_EQUAL', 'MINUS_EQUAL', 'STAR_EQUAL', 'SOLIDUS_EQUAL',
             'MODULUS_EQUAL', 'SHIFT_LEFT_EQUAL', 'SHIFT_RIGHT_EQUAL', 'AND_EQUAL', 'CARET_EQUAL',
-            'PIPE_EQUAL']
+            'PIPE_EQUAL', 'QUESTION']
 
     t_BRACE_OPEN = r'{'
     t_BRACE_CLOSE = r'}'
@@ -245,6 +252,7 @@ class Lexer:
     t_AND_EQUAL = r'&='
     t_CARET_EQUAL = r'^='
     t_PIPE_EQUAL = r'\|='
+    t_QUESTION = r'\?'
 
     t_ignore = ' \r\t'
 
@@ -362,7 +370,7 @@ class Parser:
         ('left', 'PLUS', 'MINUS'),
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
         ('left', 'AS'),
-        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF'),
+        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF', 'UQUESTION'),
         ('left', 'PAREN_OPEN', 'DOT')
     )
 
@@ -611,6 +619,18 @@ class Parser:
         '''
         p[0] = TypePointer(p[3], mut=True)
 
+    def p_type_2_1(self, p):
+        '''
+        type : QUESTION type
+        '''
+        p[0] = TypeQPointer(TypePointer(p[2], mut=False))
+
+    def p_type_3_1(self, p):
+        '''
+        type : QUESTION MUT type
+        '''
+        p[0] = TypeQPointer(TypePointer(p[3], mut=True))
+
     def p_type_4(self, p):
         '''
         type : BRACKET_OPEN type SEMI expr BRACKET_CLOSE
@@ -849,6 +869,7 @@ class Parser:
     def p_stmt_14(self, p):
         '''
         stmt : if_stmt
+             | if_let_stmt
              | for_stmt
              | expr_stmt
         '''
@@ -941,6 +962,39 @@ class Parser:
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[p[7]], label=p[3])
+
+    def p_if_let_stmt_1(self, p):
+        '''
+        if_let_stmt : IF if_let_bind stmt_block end_scope
+        '''
+        p[0] = StmtIfLet(line=p.lineno(1), bind=p[2], stmts=p[3], else_stmts=[], label=None)
+
+    def p_if_let_stmt_2(self, p):
+        '''
+        if_let_stmt : IF if_let_bind stmt_block end_scope ELSE stmt_block
+        '''
+        p[0] = StmtIfLet(line=p.lineno(1), bind=p[2], stmts=p[3], else_stmts=p[6], label=None)
+
+    def p_if_let_stmt_4(self, p):
+        '''
+        if_stmt : IF DOUBLE_COLON ID if_let_bind stmt_block end_scope
+        '''
+        self.scopes[-1][Name('*', p[3])] = p[3]
+        p[0] = StmtIfLet(line=p.lineno(1), bind=p[4], stmts=p[5], else_stmts=[], label=p[3])
+
+    def p_if_let_bind_1(self, p):
+        '''
+        if_let_bind : LET begin_scope ID COLON type EQUAL expr
+        '''
+        self.scopes[-1][Name('*', p[3])] = p[5]
+        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=False)
+
+    def p_if_let_bind_2(self, p):
+        '''
+        if_let_bind : LET begin_scope MUT ID COLON type EQUAL expr
+        '''
+        self.scopes[-1][Name('*', p[4])] = p[6]
+        p[0] = StmtBind(line=p.lineno(1), name=p[4], ty=p[6], val=p[8], mut=True)
 
     def p_expr_1(self, p):
         '''
@@ -1036,6 +1090,7 @@ class Parser:
         '''
         unary_expr : MINUS expr %prec UMINUS
                    | AMPERSAND expr %prec UAMPERSAND
+                   | QUESTION expr %prec UQUESTION
                    | STAR expr %prec USTAR
                    | BANG expr %prec BANG
         '''
@@ -1202,6 +1257,13 @@ class StmtIf(Stmt):
     label: Optional[str]
 
 @dataclass
+class StmtIfLet(Stmt):
+    bind: StmtBind
+    stmts: Sequence[Stmt]
+    else_stmts: Sequence[Stmt]
+    label: Optional[str]
+
+@dataclass
 class StmtFor(Stmt):
     expr: Optional['Expr']
     stmts: Sequence[Stmt]
@@ -1296,6 +1358,8 @@ with open(filename) as f:
 
 ARRAY_FORWARDS: Set[str] = set()
 ARRAY_STRUCTS: Set[str] = set()
+QPOINTER_FORWARDS: Set[str] = set()
+QPOINTER_STRUCTS: Set[str] = set()
 LAMBDA_FORWARDS: List[str] = []
 LAMBDAS: List[str] = []
 
@@ -1310,6 +1374,10 @@ def mangle_type_name(ty: Union[Type, Name]) -> str:
         if ty.mut:
             return f'__mutptr{mangle_type_name(ty.ty)}'
         return f'__ptr{mangle_type_name(ty.ty)}'
+    if isinstance(ty, TypeQPointer):
+        QPOINTER_FORWARDS.add(f'struct __qptr{mangle_type_name(ty.ty)};')
+        QPOINTER_STRUCTS.add(f'struct __qptr{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __ptr; }};')
+        return f'__qptr{mangle_type_name(ty.ty)}'
     if isinstance(ty, TypeNil):
         return ty.ffi
     if isinstance(ty, TypeArray):
@@ -1355,7 +1423,7 @@ def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
 
 def emit_type_or_name(ty: Union[Type, Name]) -> str:
     if isinstance(ty, Type):
-        if isinstance(ty, TypeArray):
+        if isinstance(ty, (TypeArray, TypeQPointer)):
             return f'struct {mangle_type_name(ty)}'
         return emit_type(ty)
     return emit_name(ty)
@@ -1383,6 +1451,9 @@ def emit_expr(expr: Expr) -> str:
         #    return f'(({emit_type_or_name(cast(Union[Type, Name], expr.ty))}) (& {emit_expr(expr.rhs)}))'
         if expr.op == '&mut': # for now, emit one that doesn't do const verification :(
             return f'(& {emit_expr(expr.rhs)})'
+        if expr.op == '?':
+            expr_type(expr)
+            return f'((struct {mangle_type_name(cast(Union[Type, Name], expr.ty))}){{ .__ptr = {emit_expr(expr.rhs)} }})'
         return f'({expr.op} {emit_expr(expr.rhs)})'
     if isinstance(expr, ExprName):
         return emit_name(expr.name)
@@ -1452,6 +1523,20 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         return output
     if isinstance(stmt, StmtIf):
         output += [pad + f'if ({emit_expr(stmt.expr)}) {{']
+        for s in stmt.stmts:
+            output += emit_stmt(s, indent + 4)
+        output += [pad + '}']
+        if len(stmt.else_stmts) > 0:
+            output += [pad + 'else {']
+            for s in stmt.else_stmts:
+                output += emit_stmt(s, indent + 4)
+            output += [pad + '}']
+        if stmt.label is not None:
+            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+        return output
+    if isinstance(stmt, StmtIfLet):
+        output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
+        output += [pad + f'if ({stmt.bind.name}) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
@@ -1622,7 +1707,13 @@ if not make_pkg:
         for line in ARRAY_FORWARDS:
             print(line, file=f)
 
+        for line in QPOINTER_FORWARDS:
+            print(line, file=f)
+
         for line in ARRAY_STRUCTS:
+            print(line, file=f)
+
+        for line in QPOINTER_STRUCTS:
             print(line, file=f)
 
         for line in typedefs:
@@ -1649,6 +1740,12 @@ if not make_pkg:
 if make_pkg:
     with open(os.path.splitext(filename)[0] + '.pkg', 'w') as f:
         for line in pub_forward_structs:
+            print(line, file=f)
+
+        for line in QPOINTER_FORWARDS:
+            print(line, file=f)
+
+        for line in QPOINTER_STRUCTS:
             print(line, file=f)
 
         for line in pub_typedefs:
