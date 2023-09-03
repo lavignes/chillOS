@@ -2,7 +2,6 @@
 pkg K;
 
 use Kfdt;
-use U32;
 
 pub fn start(fdt_start: &U8) {
     let mut tree: Kfdt::Tree;
