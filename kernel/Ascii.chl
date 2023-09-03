@@ -1,19 +1,31 @@
 pkg Ascii;
 
-pub fn z_compare(mut lhs: &U8, mut rhs: &U8): Int {
-    let mut c1: U8;
-    let mut c2: U8;
-    for {
-        c1 = *lhs;
-        c2 = *rhs;
-        if (c1 == 0) || (c1 != c2) {
-            break;
-        }
-        lhs += 1;
-        rhs += 1;
+pub fn compare(lhs: [U8], rhs: [U8]): Int {
+    let length = lengthof lhs;
+    if (length != lengthof rhs) || (length == 0) {
+        return -1;
     }
-    return c1 - c2;
+    let mut i = 0u;
+    let mut cl: U8;
+    let mut cr: U8;
+    for i < length {
+        cl = lhs[i];
+        cr = rhs[i];
+        if cl != cr {
+            return cl - cr;
+        }
+        i += 1;
+    }
+    return -1;
 }
+
+//pub fn find(str: [U8], substr: [U8]): UInt {
+//
+//}
+
+//pub fn split(str: [U8], substr: [U8], consumer: fn(substr: [U8])) {
+//     
+//}
 
 pub fn is_digit(val: U8): Bool {
     return (val >= '0') && (val <= '9');

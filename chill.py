@@ -41,6 +41,10 @@ class TypeArray(Type):
     size: 'Expr'
 
 @dataclass
+class TypeView(Type):
+    ty: TypePointer
+
+@dataclass
 class TypeStruct(Type):
     fields: Sequence['Field']
 
@@ -86,10 +90,7 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
         if isinstance(lhs, TypeArray):
             expr.ty = lhs.ty
             return lhs.ty
-        if isinstance(lhs, TypePointer):
-            expr.ty = lhs.ty
-            return lhs.ty
-        return lhs
+        raise SyntaxError(f'illegal index: {lhs}[{expr.ty}]')
     if isinstance(expr, ExprCast):
         lhs = expr_type(expr.expr)
         ty = expr.ty
@@ -128,6 +129,12 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
             expr.ty = lhs
             return lhs
         raise SyntaxError(f'illegal operation: {lhs} {expr.op} {rhs}')
+    if isinstance(expr, ExprView):
+        lhs = expr_type(expr.lhs)
+        if not isinstance(lhs, TypePointer):
+            return None
+        expr.ty = TypeView(lhs)
+        return TypeView(lhs)
     if isinstance(expr, ExprUnaryOp):
         rhs = expr_type(expr.rhs)
         if not isinstance(rhs, Type):
@@ -198,6 +205,7 @@ class Lexer:
             'pkg': 'PKG',
             'sizeof': 'SIZEOF',
             'union': 'UNION',
+            'lengthof': 'LENGTHOF',
     }
 
     tokens = list(reserved.values()) + ['ID', 'INTEGER', 'BOOL', 'BRACE_OPEN', 'BRACE_CLOSE',
@@ -207,7 +215,7 @@ class Lexer:
             'DOT', 'DOUBLE_COLON', 'COMMA', 'STRING', 'SHIFT_LEFT', 'SHIFT_RIGHT', 'AND', 'OR',
             'NOT_EQUAL', 'PLUS_EQUAL', 'MINUS_EQUAL', 'STAR_EQUAL', 'SOLIDUS_EQUAL',
             'MODULUS_EQUAL', 'SHIFT_LEFT_EQUAL', 'SHIFT_RIGHT_EQUAL', 'AND_EQUAL', 'CARET_EQUAL',
-            'PIPE_EQUAL', 'QUESTION']
+            'PIPE_EQUAL', 'QUESTION', 'TILDE']
 
     t_BRACE_OPEN = r'{'
     t_BRACE_CLOSE = r'}'
@@ -251,6 +259,7 @@ class Lexer:
     t_CARET_EQUAL = r'^='
     t_PIPE_EQUAL = r'\|='
     t_QUESTION = r'\?'
+    t_TILDE = r'~'
 
     t_ignore = ' \r\t'
 
@@ -357,6 +366,7 @@ class Parser:
         return self.inner.parse(text, lexer=lexer.inner)
 
     precedence = (
+        ('left', 'TILDE'),
         ('left', 'OR'),
         ('left', 'AND'),
         ('left', 'PIPE'),
@@ -368,8 +378,8 @@ class Parser:
         ('left', 'PLUS', 'MINUS'),
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
         ('left', 'AS'),
-        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF'),
-        ('left', 'PAREN_OPEN', 'DOT')
+        ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF', 'LENGTHOF'),
+        ('left', 'PAREN_OPEN', 'DOT', 'BRACKET_OPEN')
     )
 
     def p_pkg(self, p):
@@ -634,6 +644,18 @@ class Parser:
         type : BRACKET_OPEN type SEMI expr BRACKET_CLOSE
         '''
         p[0] = TypeArray(p[2], size=p[4])
+
+    def p_type_5(self, p):
+        '''
+        type : BRACKET_OPEN type BRACKET_CLOSE
+        '''
+        p[0] = TypeView(TypePointer(p[2], mut=False))
+
+    def p_type_6(self, p):
+        '''
+        type : BRACKET_OPEN MUT type BRACKET_CLOSE
+        '''
+        p[0] = TypeView(TypePointer(p[3], mut=True))
 
     def p_type_7(self, p):
         '''
@@ -1013,10 +1035,12 @@ class Parser:
         expr : binary_expr
              | unary_expr
              | index_expr
+             | view_expr
              | call_expr
              | cast_expr
              | field_expr
              | sizeof_expr
+             | lengthof_expr
              | primary_expr
         '''
         p[0] = p[1]
@@ -1032,6 +1056,12 @@ class Parser:
         index_expr : expr BRACKET_OPEN expr BRACKET_CLOSE
         '''
         p[0] = ExprIndex(ty=None, lhs=p[1], rhs=p[3])
+
+    def p_view_expr(self, p):
+        '''
+        view_expr : expr TILDE expr
+        '''
+        p[0] = ExprView(ty=None, lhs=p[1], rhs=p[3])
 
     def p_field_expr(self, p):
         '''
@@ -1109,6 +1139,12 @@ class Parser:
         sizeof_expr : SIZEOF type
         '''
         p[0] = ExprSizeof(ty=UInt, rhs=p[2])
+
+    def p_lengthof_expr(self, p):
+        '''
+        lengthof_expr : LENGTHOF expr
+        '''
+        p[0] = ExprLengthof(ty=UInt, rhs=p[2])
 
     def p_unary_expr_1(self, p):
         '''
@@ -1316,6 +1352,11 @@ class ExprSizeof(Expr):
     rhs: Union[Type, Name]
 
 @dataclass
+class ExprLengthof(Expr):
+    ty: TypeInteger
+    rhs: Expr
+
+@dataclass
 class ExprName(Expr):
     name: Name
 
@@ -1326,6 +1367,11 @@ class ExprCast(Expr):
 
 @dataclass
 class ExprIndex(Expr):
+    lhs: Expr
+    rhs: Expr
+
+@dataclass
+class ExprView(Expr):
     lhs: Expr
     rhs: Expr
 
@@ -1389,6 +1435,8 @@ ARRAY_FORWARDS: Set[str] = set()
 ARRAY_STRUCTS: Set[str] = set()
 QPOINTER_FORWARDS: Set[str] = set()
 QPOINTER_STRUCTS: Set[str] = set()
+VIEW_FORWARDS: Set[str] = set()
+VIEW_STRUCTS: Set[str] = set()
 LAMBDA_FORWARDS: List[str] = []
 LAMBDAS: List[str] = []
 
@@ -1417,6 +1465,10 @@ def mangle_type_name(ty: Union[Type, Name]) -> str:
         ARRAY_FORWARDS.add(f'struct __arr{size}{mangle_type_name(ty.ty)};')
         ARRAY_STRUCTS.add(f'struct __arr{size}{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __items[{size}]; }};')
         return f'__arr{size}{mangle_type_name(ty.ty)}'
+    if isinstance(ty, TypeView):
+        VIEW_FORWARDS.add(f'struct __view{mangle_type_name(ty.ty)};')
+        VIEW_STRUCTS.add(f'struct __view{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __items; UInt __length; }};')
+        return f'__view{mangle_type_name(ty.ty)}'
     return f'{ty}'
 
 def emit_name(name: Name) -> str:
@@ -1452,7 +1504,7 @@ def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
 
 def emit_type_or_name(ty: Union[Type, Name]) -> str:
     if isinstance(ty, Type):
-        if isinstance(ty, (TypeArray, TypeQPointer)):
+        if isinstance(ty, (TypeArray, TypeQPointer, TypeView)):
             return f'struct {mangle_type_name(ty)}'
         return emit_type(ty)
     return emit_name(ty)
@@ -1492,6 +1544,9 @@ def emit_expr(expr: Expr) -> str:
             if ty.ffi == 'I64' or ty.ffi == 'Int':
                 suffix = 'L'
         return f'{expr.val}{suffix}'
+    if isinstance(expr, ExprView):
+        expr_type(expr)
+        return f'((struct {mangle_type_name(cast(Union[Type, Name], expr.ty))}){{ .__items = {emit_expr(expr.lhs)}, .__length = {emit_expr(expr.rhs)} }})'
     if isinstance(expr, ExprCast):
         ty = expr.ty
         if isinstance(ty, TypeQPointer):
@@ -1500,6 +1555,8 @@ def emit_expr(expr: Expr) -> str:
         return f'(({emit_type_and_name(expr.ty, "", mut=False)}) {emit_expr(expr.expr)})'
     if isinstance(expr, ExprSizeof):
         return f'(sizeof ({emit_type_or_name(expr.rhs)}))'
+    if isinstance(expr, ExprLengthof):
+        return f'(({emit_expr(expr.rhs)}).__length)'
     if isinstance(expr, ExprBool):
         if expr.val:
             return '1'
@@ -1730,7 +1787,11 @@ for item in pkg.items:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
             pkg = json.load(fp=f)
             QPOINTER_FORWARDS.update(pkg['forward_qptrs'])
+            VIEW_FORWARDS.update(pkg['forward_views'])
+            ARRAY_FORWARDS.update(pkg['forward_arrays'])
             QPOINTER_STRUCTS.update(pkg['qptr_structs'])
+            VIEW_STRUCTS.update(pkg['view_structs'])
+            ARRAY_STRUCTS.update(pkg['array_structs'])
             forward_structs += pkg['forward_structs']
             typedefs += pkg['typedefs']
             structs += pkg['structs']
@@ -1760,10 +1821,16 @@ if not make_pkg:
         for line in QPOINTER_FORWARDS:
             print(line, file=f)
 
+        for line in VIEW_FORWARDS:
+            print(line, file=f)
+
         for line in ARRAY_STRUCTS:
             print(line, file=f)
 
         for line in QPOINTER_STRUCTS:
+            print(line, file=f)
+
+        for line in VIEW_STRUCTS:
             print(line, file=f)
 
         for line in typedefs:
@@ -1787,9 +1854,13 @@ if not make_pkg:
 if make_pkg:
     pkg = {
         'forward_qptrs': list(QPOINTER_FORWARDS),
+        'forward_views': list(VIEW_FORWARDS),
+        'forward_arrays': list(ARRAY_FORWARDS),
         'forward_structs': pub_forward_structs,
         'typedefs': pub_typedefs,
         'qptr_structs': list(QPOINTER_STRUCTS),
+        'view_structs': list(VIEW_STRUCTS),
+        'array_structs': list(ARRAY_STRUCTS),
         'structs': pub_structs,
         'forward_fns': pub_forward_fns
     }

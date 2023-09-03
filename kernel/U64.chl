@@ -6,9 +6,9 @@ pub let MAX: U64 = 0xFFFF_FFFF_FFFF_FFFFu64;
 pub let MIN: U64 = 0x0000_0000_0000_0000u64;
 pub let BITS: U64 = sizeof U64 * 8;
 
-pub fn parse(into: &mut U64, base: UInt, str: &U8, len: UInt): Int {
+pub fn parse(into: &mut U64, base: UInt, str: [U8]): Int {
     let mut tmp: UInt;
-    let ret: Int = UInt::parse(&mut tmp, base, str, len);
+    let ret: Int = UInt::parse(&mut tmp, base, str);
     if ret != 0 {
         return ret;
     }

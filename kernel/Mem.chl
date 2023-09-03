@@ -11,19 +11,10 @@ pub type AllocTable = {
     dealloc: FnDealloc,
 };
 
-pub fn equals(lhs: &U8, rhs: &U8, mut size: UInt): Bool {
-    for size > 0 {
-        size -= 1;
-        if *(lhs + size) != *(rhs + size) {
-            return false;
-        }
-    }
-    return true;
-}
-
-pub fn set(addr: &mut U8, mut size: UInt, val: U8) {
-    for size > 0 {
-        size -= 1;
-        *(addr + size) = val;
+pub fn set(mem: [mut U8], val: U8) {
+    let mut i = 0u;
+    for i < lengthof mem {
+        mem[i] = val;
+        i += 1;
     }
 }

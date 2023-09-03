@@ -6,28 +6,23 @@ pub let MAX: U32 = 0xFFFF_FFFFu32;
 pub let MIN: U32 = 0x0000_0000u32;
 pub let BITS: UInt = sizeof U32 * 8;
 
-pub fn find(mut items: &U32, mut count: UInt, predicate: fn(U32): Bool): ?U32 {
-    for count > 0 {
-        count -= 1;
-        if predicate(*items) {
-            return items as ?U32;
+pub fn find(items: [U32], predicate: fn(U32): Bool): UInt {
+    let mut i = 0u;
+    for i < lengthof items {
+        if predicate(items[i]) {
+            return i;
         }
-        items += 1;
+        i += 1;
     }
-    return 0 as ?U32;
+    return UInt::MAX;
 }
 
-pub fn map(dst: &mut U32, src: &U32, mut count: UInt, func: fn(U32): U32) {
-    // TODO: this is more of an example that this works, but its not saving anyone anything
-    map_ctx(dst, src, count, func as &U8, fn(ctx: &U8, val: U32): U32 {
-        return (ctx as fn(U32): U32)(val);
-    });
-}
-
-pub fn map_ctx(dst: &mut U32, src: &U32, mut count: UInt, ctx: &U8, func: fn(&U8, U32): U32) {
-    for count > 0 {
-        count -= 1;
-        *(dst + count) = func(ctx, *(src + count));
+pub fn map(dst: [mut U32], src: [U32], func: fn(U32): U32) {
+    let mut i = 0u;
+    let mut length: UInt = UInt::min(lengthof dst, lengthof src);
+    for i < length {
+        dst[i] = func(src[i]);
+        i += 1;
     }
 }
 
@@ -85,9 +80,9 @@ pub fn log2(mut val: U32): U32 {
     return LOG2_TABLE[(val * 0x07C4_ACDD) >> 27];
 }
 
-pub fn parse(into: &mut U32, base: UInt, str: &U8, len: UInt): Int {
+pub fn parse(into: &mut U32, base: UInt, str: [U8]): Int {
     let mut tmp: UInt;
-    let ret: Int = UInt::parse(&mut tmp, base, str, len);
+    let ret: Int = UInt::parse(&mut tmp, base, str);
     if ret != 0 {
         return ret;
     }

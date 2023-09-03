@@ -10,8 +10,7 @@ use Mem;
 use Ascii;
 
 pub type Iter = {
-    name: &U8,         // address of asciiz name
-    name_len: UInt,
+    name: [U8],
     first_prop: ?U32,  // address of first prop token
     prop: ?U32,        // address of current prop token
     first_child: ?U32, // address of first child begin node token
@@ -35,10 +34,8 @@ pub fn init_from_addr(tree: &mut Tree, addr: &U8): Int {
     let mut header: RawHeader;
 
     // all of the data in the fdt header is U32BE, we deserialize the header into LE
-    U32::map(
-        &mut header as &mut U8 as &mut U32, addr as &U32,
-        sizeof RawHeader / sizeof U32,
-        U32::endian_swap);
+    let length = sizeof RawHeader / sizeof U32;
+    U32::map(&mut header as &mut U8 as &mut U32 ~ length, addr as &U32 ~ length, U32::endian_swap);
 
     if header.magic != 0xd00dfeed {
         return ERR_BAD_MAGIC;
@@ -83,38 +80,37 @@ fn rewind(iter: &mut Iter) {
 }
 
 type Prop = {
-    name: &U8,      // address of asciiz name
-    name_len: UInt,
-    data: &U8,
-    data_len: UInt,
+    name: [U8],
+    data: [U8],
 };
 
 fn next_prop(tree: &Tree, iter: &mut Iter, prop: &mut Prop): Int {
-    if::has_prop let mut iter_prop: &U32 = iter.prop {
-        if *iter_prop != TOK_PROP {
+    if::has_prop let mut tok: &U32 = iter.prop {
+        if *tok != TOK_PROP {
             break has_prop;
         }
 
-        let mut val: U32 = U32::endian_swap(*iter_prop);
-        iter_prop += 1; // consume TOK_PROP token
-        prop.data_len = U32::endian_swap(*iter_prop) as UInt;
-        iter_prop += 1; // consume data size
-        if find_string(tree, U32::endian_swap(*iter_prop), &mut prop.name, &mut prop.name_len) != 0 {
+        let mut val: U32 = U32::endian_swap(*tok);
+        tok += 1; // consume TOK_PROP token
+        let data_len = U32::endian_swap(*tok) as UInt;
+        tok += 1; // consume data size
+        if find_string(tree, U32::endian_swap(*tok), &mut prop.name) != 0 {
             return ERR_MALFORMED;
         }
-        iter_prop += 1; // consume name offset
-        prop.data = iter_prop as &U8;
+        tok += 1; // consume name offset
+        prop.data = tok as &U8 ~ data_len;
         // skip prop data, align to next token, and skip TOK_NOPs
-        iter_prop = U32::align_to_next((iter_prop as &U8) + prop.data_len);
-        if let p: &U32 = U32::find(iter_prop, UInt::MAX, is_not_nop) {
-            iter_prop = p;
+        tok = U32::align_to_next((tok as &U8) + data_len);
+        let pos: UInt = U32::find(tok ~ UInt::MAX, is_not_nop);
+        if pos != UInt::MAX {
+            tok += pos;
         } else {
             return ERR_MALFORMED;
         }
         return 0;
     }
 
-    Mem::set(prop as &mut U8, sizeof Prop, 0);
+    Mem::set((prop as &mut U8) ~ sizeof Prop, 0);
     return 0;
 }
 
@@ -173,18 +169,18 @@ let TOK_PROP: U32 = 0x0000_0003;
 let TOK_NOP: U32 = 0x0000_0004;
 let TOK_END: U32 = 0x0000_0009;
 
-// the names are always in asciiz so we use that format for comparisons
-let TOK_PROP_ADDR_CELLS: [U8; 15] = "#address-cells\x00";
-let TOK_PROP_SIZE_CELLS: [U8; 12] = "#size-cells\x00";
+let TOK_PROP_ADDR_CELLS: [U8; 14] = "#address-cells";
+let TOK_PROP_SIZE_CELLS: [U8; 11] = "#size-cells";
 
 fn is_not_nop(val: U32): Bool {
     return U32::endian_swap(val) != TOK_NOP;
 }
 
-fn find_string(tree: &Tree, string_offset: U32, string: &mut &U8, string_len: &mut UInt): Int {
-    *string = (tree.strings_addr + (string_offset as UInt)) as &U8;
-    if let string_null_byte_addr: &U8 = U8::find(*string, UInt::MAX, U8::is_zero) {
-        *string_len = string_null_byte_addr - *string;
+fn find_string(tree: &Tree, string_offset: U32, string: &mut [U8]): Int {
+    let base = (tree.strings_addr + (string_offset as UInt)) as &U8;
+    let pos: UInt = U8::find(base ~ UInt::MAX, U8::is_zero);
+    if pos != UInt::MAX {
+        *string = base ~ pos;
         return 0;
     }
     return ERR_MALFORMED;
@@ -192,29 +188,32 @@ fn find_string(tree: &Tree, string_offset: U32, string: &mut &U8, string_len: &m
 
 // starting from a likely TOK_NOP/TOK_BEGIN_NODE token, walk forward and initialize an Iter
 fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): Int {
-    Mem::set(iter as &mut U8, sizeof Iter, 0);
+    Mem::set(iter as &mut U8 ~ sizeof Iter, 0);
 
-    if let t: &U32 = U32::find(*tok, UInt::MAX, is_not_nop) {
-        if U32::endian_swap(*t) != TOK_BEGIN_NODE {
+    let mut pos: UInt = U32::find(*tok as &U32 ~ UInt::MAX, is_not_nop);
+    if pos != UInt::MAX {
+        *tok += pos;
+        if U32::endian_swap(**tok) != TOK_BEGIN_NODE {
             return ERR_MALFORMED;
         }
-        *tok = t;
     }
 
     // the node name is the next ptr after the TOK_BEGIN_NODE
     *tok += 1;
-    iter.name = *tok as &U8;
+    let base = *tok as &U8;
     // following the name is possible padding bytes and the next token
-    if let name_null_byte_addr: &U8 = U8::find(iter.name, UInt::MAX, U8::is_zero) {
-        iter.name_len = name_null_byte_addr - iter.name;
+    pos = U8::find(base ~ UInt::MAX, U8::is_zero);
+    if pos != UInt::MAX {
+        iter.name = base ~ pos;
         // add padding to align to next token
-        *tok = U32::align_to_next(name_null_byte_addr + 1);
+        *tok = U32::align_to_next(base + pos + 1); // dont forget null byte
     } else {
         return ERR_MALFORMED;
     }
 
-    if let t: &U32 = U32::find(*tok, UInt::MAX, is_not_nop) {
-        *tok = t;
+    pos = U32::find(*tok as &U32 ~ UInt::MAX, is_not_nop);
+    if pos != UInt::MAX {
+        *tok += pos;
     } else {
         return ERR_MALFORMED;
     }
@@ -229,23 +228,24 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): Int {
             *tok += 1; // consume TOK_PROP token
             let prop_data_size: UInt = U32::endian_swap(**tok) as UInt;
             *tok += 1; // consume data size
-            let mut prop_name: &U8;
-            let mut prop_name_len: UInt;
-            if find_string(tree, U32::endian_swap(**tok), &mut prop_name, &mut prop_name_len) != 0 {
+            let mut prop_name: [U8];
+            if find_string(tree, U32::endian_swap(**tok), &mut prop_name) != 0 {
                 return ERR_MALFORMED;
             }
             *tok += 1; // consume name offset
 
             // if the property is one of #address-cells or #size-cells read them now
-            if Ascii::z_compare(&(TOK_PROP_ADDR_CELLS[0]), prop_name) == 0 {
+            // TODO: should make string constants into [U8]
+            if Ascii::compare(&TOK_PROP_ADDR_CELLS[0] ~ sizeof TOK_PROP_ADDR_CELLS, prop_name) == 0 {
                 iter.addr_cells = U32::endian_swap(**tok);
-            } else if Ascii::z_compare(&(TOK_PROP_SIZE_CELLS[0]), prop_name) == 0 {
+            } else if Ascii::compare(&TOK_PROP_SIZE_CELLS[0] ~ sizeof TOK_PROP_SIZE_CELLS, prop_name) == 0 {
                 iter.size_cells = U32::endian_swap(**tok);
             }
             // skip prop data, align to next token, and skip TOK_NOPs
             *tok = U32::align_to_next((*tok as &U8) + prop_data_size);
-            if let t: &U32 = U32::find(*tok, UInt::MAX, is_not_nop) {
-                *tok = t;
+            pos = U32::find(*tok as &U32 ~ UInt::MAX, is_not_nop);
+            if pos != UInt::MAX {
+               *tok += pos;
             } else {
                 return ERR_MALFORMED;
             }
