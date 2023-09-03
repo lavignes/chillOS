@@ -58,11 +58,15 @@ pub fn init_from_addr(tree: &mut Tree, addr: &U8): Int {
 //}
 
 pub type Uart = {
-    model_name: &U8,
-    model_name_len: UInt,
+    model_name: [U8],
 };
 
 pub fn find_uart(tree: &mut Tree, uart: &mut Uart): Int {
+
+    Ascii::split("test/one", "/", fn(split: [U8]): Int {
+        return 0;
+    });
+
     // for now, we'll assume a "chosen" uart is defined
     for let _: &U32 = tree.root.child {
         let mut child: Iter;
@@ -169,8 +173,8 @@ let TOK_PROP: U32 = 0x0000_0003;
 let TOK_NOP: U32 = 0x0000_0004;
 let TOK_END: U32 = 0x0000_0009;
 
-let TOK_PROP_ADDR_CELLS: [U8; 14] = "#address-cells";
-let TOK_PROP_SIZE_CELLS: [U8; 11] = "#size-cells";
+let TOK_PROP_ADDR_CELLS: [U8] = "#address-cells";
+let TOK_PROP_SIZE_CELLS: [U8] = "#size-cells";
 
 fn is_not_nop(val: U32): Bool {
     return U32::endian_swap(val) != TOK_NOP;
@@ -235,10 +239,9 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): Int {
             *tok += 1; // consume name offset
 
             // if the property is one of #address-cells or #size-cells read them now
-            // TODO: should make string constants into [U8]
-            if Ascii::compare(&TOK_PROP_ADDR_CELLS[0] ~ sizeof TOK_PROP_ADDR_CELLS, prop_name) == 0 {
+            if Ascii::compare(TOK_PROP_ADDR_CELLS, prop_name) == 0 {
                 iter.addr_cells = U32::endian_swap(**tok);
-            } else if Ascii::compare(&TOK_PROP_SIZE_CELLS[0] ~ sizeof TOK_PROP_SIZE_CELLS, prop_name) == 0 {
+            } else if Ascii::compare(TOK_PROP_SIZE_CELLS, prop_name) == 0 {
                 iter.size_cells = U32::endian_swap(**tok);
             }
             // skip prop data, align to next token, and skip TOK_NOPs

@@ -1,5 +1,7 @@
 pkg Ascii;
 
+use UInt;
+
 pub fn compare(lhs: [U8], rhs: [U8]): Int {
     let length = lengthof lhs;
     if (length != lengthof rhs) || (length == 0) {
@@ -19,13 +21,55 @@ pub fn compare(lhs: [U8], rhs: [U8]): Int {
     return -1;
 }
 
-//pub fn find(str: [U8], substr: [U8]): UInt {
-//
-//}
+pub fn find(str: [U8], substr: [U8]): UInt {
+    if lengthof substr == 0 {
+        return 0;
+    }
+    let mut i = 0u;
+    for::outer i < lengthof str {
+        if str[i] != substr[0] {
+            i += 1;
+            continue;
+        }
+        let mut j = 1u;
+        for ((i + j) < lengthof str) && (j < lengthof substr) {
+            if str[i + j] != substr[j] {
+                i += 1;
+                continue outer;
+            }
+            j += 1;
+        }
+        return i;
+    }
+    return UInt::MAX;
+}
 
-//pub fn split(str: [U8], substr: [U8], consumer: fn(substr: [U8])) {
-//     
-//}
+ pub fn split(str: [U8], substr: [U8], consumer: fn([U8]): Int): Int {
+    return split_ctx(str, substr, consumer as &U8 as ?U8, fn(ctx: ?U8, split: [U8]): Int {
+        if let consumer: &U8 = ctx {
+            return (consumer as fn([U8]): Int)(split);
+        }
+        return 0;
+    });
+}
+
+pub fn split_ctx(str: [U8], substr: [U8], ctx: ?U8, consumer: fn(?U8, [U8]): Int): Int {
+    let mut i = 0u;
+    let mut view: [U8] = &str[i] ~ lengthof str - i;
+    for i < lengthof str {
+        let pos: UInt = find(view, substr);
+        if pos == UInt::MAX {
+            return consumer(ctx, view);
+        }
+        let result: UInt = consumer(ctx, &str[i] ~ pos);
+        if result != 0 {
+            return result;
+        }
+        i += pos + lengthof substr;
+        view = &str[i] ~ lengthof str - i;
+    }
+    return 0;
+}
 
 pub fn is_digit(val: U8): Bool {
     return (val >= '0') && (val <= '9');

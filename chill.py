@@ -90,6 +90,9 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
         if isinstance(lhs, TypeArray):
             expr.ty = lhs.ty
             return lhs.ty
+        if isinstance(lhs, TypeView):
+            expr.ty = lhs.ty.ty
+            return lhs.ty.ty
         raise SyntaxError(f'illegal index: {lhs}[{expr.ty}]')
     if isinstance(expr, ExprCast):
         lhs = expr_type(expr.expr)
@@ -339,7 +342,7 @@ class Lexer:
         return t
 
     def t_STRING(self, t):
-        r'"((\\x[0-9a-fA-F]{2})|[ -~])*"'
+        r'"((\\x[0-9a-fA-F]{2})|\\t|\\n|\\r|\\\\|\\\'|\\"|[ -~])*?"'
         t.value = t.value[1:-1]
         value = ''
         i = 0
@@ -347,6 +350,24 @@ class Lexer:
             if cast(str, t.value)[i:].startswith('\\x'):
                 value += chr(int(t.value[i+2:i+4], base=16))
                 i += 4
+            elif cast(str, t.value)[i:].startswith('\\t'):
+                value += '\t'
+                i += 2
+            elif cast(str, t.value)[i:].startswith('\\n'):
+                value += '\n'
+                i += 2
+            elif cast(str, t.value)[i:].startswith('\\r'):
+                value += '\r'
+                i += 2
+            elif cast(str, t.value)[i:].startswith('\\\\'):
+                value += '\\'
+                i += 2
+            elif cast(str, t.value)[i:].startswith('\\\''):
+                value += '\''
+                i += 2
+            elif cast(str, t.value)[i:].startswith('\\"'):
+                value += '"'
+                i += 2
             else:
                 value += t.value[i]
                 i += 1
@@ -1195,7 +1216,11 @@ class Parser:
         vals = []
         for b in cast(str, p[1]).encode():
             vals += [ExprInteger(ty=U8, val=b)]
-        p[0] = ExprArray(ty=TypeArray(ty=U8, size=ExprInteger(ty=UInt, val=len(vals))), vals=vals)
+        # a string is just a view over a constant array
+        size = ExprInteger(ty=UInt, val=len(vals))
+        lhs = ExprIndex(ty=U8, lhs=ExprArray(ty=TypeArray(ty=U8, size=size), vals=vals), rhs=ExprInteger(ty=UInt, val=0))
+        ty = TypePointer(ty=U8, mut=False)
+        p[0] = ExprView(ty=TypeView(ty), lhs=ExprUnaryOp(ty=ty, op='&', rhs=lhs), rhs=size)
 
     def p_primary_expr_5(self, p):
         '''
@@ -1593,8 +1618,8 @@ def emit_expr(expr: Expr) -> str:
         for arg in expr.args:
             args += [f'{emit_type_and_name(arg.ty, arg.name, arg.mut)}']
         name = f'__lambda_{str(len(LAMBDAS))}'
-        LAMBDA_FORWARDS.append(f'static {emit_type_or_name(expr.rets)} {name}({",".join(args)});')
-        LAMBDAS.append(f'static {emit_type_or_name(expr.rets)} {name}({",".join(args)}) {{')
+        LAMBDA_FORWARDS.append(f'static inline {emit_type_or_name(expr.rets)} {name}({",".join(args)});')
+        LAMBDAS.append(f'static inline {emit_type_or_name(expr.rets)} {name}({",".join(args)}) {{')
         for stmt in expr.stmts:
             for line in emit_stmt(stmt, 4):
                 LAMBDAS.append(line)
