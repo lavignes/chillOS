@@ -67,15 +67,11 @@ pub type Uart = {
 
 pub fn find_uart(tree: &mut Tree, uart: &mut Uart): Int {
     // for now, we'll assume a "chosen" uart is defined
-    for {
-        if let _: &U32 = tree.root.child {
-            let mut child: Iter;
-            let result: Int = next_child(tree, &mut tree.root, &mut child);
-            if result != 0 {
-                return result;
-            }
-        } else {
-            break;
+    for let _: &U32 = tree.root.child {
+        let mut child: Iter;
+        let result: Int = next_child(tree, &mut tree.root, &mut child);
+        if result != 0 {
+            return result;
         }
     }
     return 0;
@@ -139,15 +135,11 @@ fn next_child(tree: &Tree, iter: &mut Iter, child: &mut Iter): Int {
                 return result;
             }
             // skip over all great-grandchildren
-            for {
-                if let _: &U32 = grandchild.child {
-                    let mut tmp: Iter;
-                    let result: Int = next_child(tree, &mut grandchild, &mut tmp);
-                    if result != 0 {
-                        return result;
-                    }
-                } else {
-                    break;
+            for let _: &U32 = grandchild.child {
+                let mut tmp: Iter;
+                let result: Int = next_child(tree, &mut grandchild, &mut tmp);
+                if result != 0 {
+                    return result;
                 }
             }
             // see if we have another grandchild

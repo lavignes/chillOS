@@ -869,6 +869,7 @@ class Parser:
         stmt : if_stmt
              | if_let_stmt
              | for_stmt
+             | for_let_stmt
              | expr_stmt
         '''
         p[0] = p[1]
@@ -921,6 +922,19 @@ class Parser:
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
         p[0] = StmtFor(line=p.lineno(1), expr=p[4], stmts=p[5], label=p[3])
+
+    def p_for_let_stmt_1(self, p):
+        '''
+        for_let_stmt : FOR if_let_bind stmt_block end_scope
+        '''
+        p[0] = StmtForLet(line=p.lineno(1), bind=p[2], stmts=p[3], label=None)
+
+    def p_for_let_stmt_2(self, p):
+        '''
+        for_stmt : FOR DOUBLE_COLON ID if_let_bind stmt_block end_scope
+        '''
+        self.scopes[-1][Name('*', p[3])] = p[3]
+        p[0] = StmtForLet(line=p.lineno(1), bind=p[4], stmts=p[5], label=p[3])
 
     def p_if_stmt_1(self, p):
         '''
@@ -1279,6 +1293,12 @@ class StmtFor(Stmt):
     label: Optional[str]
 
 @dataclass
+class StmtForLet(Stmt):
+    bind: StmtBind
+    stmts: Sequence[Stmt]
+    label: Optional[str]
+
+@dataclass
 class StmtCall(Stmt):
     expr: 'ExprCall'
 
@@ -1593,6 +1613,19 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         output += [pad + '}']
         if stmt.label is not None:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
+        return output
+    if isinstance(stmt, StmtForLet):
+        output += [pad + '{']
+        output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
+        output += [pad + f'while ({stmt.bind.name}) {{']
+        for s in stmt.stmts:
+            output += emit_stmt(s, indent + 4)
+        if stmt.label is not None:
+            output += [pad + f'    __label_continue_{stmt.label}: (void)0;']
+        output += [pad + '}']
+        if stmt.label is not None:
+            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+        output += [pad + '}']
         return output
     if isinstance(stmt, StmtCall):
         output += [pad + f'{emit_expr(stmt.expr)};']
