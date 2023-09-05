@@ -387,6 +387,7 @@ class Parser:
         self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
         self.scopes = [dict()]
         self.aliases = dict() # use foo as bar;
+        self.return_type = []
 
     def parse(self, text: str) -> 'Pkg':
         lexer = Lexer()
@@ -568,26 +569,33 @@ class Parser:
         val = ExprArray(ty=p[5], vals=p[8])
         p[0] = PkgBind(line=p.lineno(1), name=name, ty=p[5], pub=False, val=val, attrs=[], mut=True)
 
-    def p_pkg_fn_1(self, p):
+    def p_pkg_fn(self, p):
         '''
-        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE stmt_block end_scope
+        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE begin_return_type stmt_block end_scope end_return_type
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = name
-        p[7] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
-        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=Nil, stmts=p[7])
+        if isinstance(p[7], TypeNil)
+            p[8] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
+        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=p[7], stmts=p[8])
 
-    def p_pkg_fn_2(self, p):
+    def p_begin_return_type(self, p):
         '''
-        pkg_fn : FN ID PAREN_OPEN begin_scope arg_list PAREN_CLOSE COLON type stmt_block end_scope
+        begin_return_type : empty
         '''
-        name = Name(self.pkg_name, p[2])
-        self.scopes[-1][name] = name
-        p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=p[8], stmts=p[9])
+        self.return_types.append(Nil)
+        p[0] = Nil
+        
+    def p_begin_return_type(self, p):
+        '''
+        begin_return_type : type
+        '''
+        self.return_types.append(p[1])
+        p[0] = p[1]
 
     def p_begin_scope(self, p):
         '''
-        begin_scope :
+        begin_scope : empty
         '''
         self.scopes.append(dict())
 
