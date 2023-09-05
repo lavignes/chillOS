@@ -108,7 +108,6 @@ pub fn find_uart(tree: &mut Tree, uart: &mut Uart): Int {
     if result != 0 {
         return result;
     }
-    
     return 0;
 }
 
@@ -136,7 +135,7 @@ fn find_prop(tree: &Tree, iter: &mut Iter, name: [U8], prop: &mut Prop): Int {
 }
 
 fn next_prop(tree: &Tree, iter: &mut Iter, prop: &mut Prop): Int {
-    if::has_prop let mut tok: &U32 = iter.prop {
+    if::has_prop ok let mut tok: &U32 = iter.prop {
         if *tok != TOK_PROP {
             break has_prop;
         }
@@ -179,7 +178,7 @@ fn find_child(tree: &Tree, iter: &mut Iter, name: [U8], child: &mut Iter): Int {
 
 // performs recursive inorder traversals to get to the next child
 fn next_child(tree: &Tree, iter: &mut Iter, child: &mut Iter): Int {
-    if let mut tok: &U32 = iter.child {
+    if ok let mut tok: &U32 = iter.child {
         let result: Int = iter_init(tree, child, &mut tok);
         if result != 0 {
             return result;
@@ -194,7 +193,7 @@ fn next_child(tree: &Tree, iter: &mut Iter, child: &mut Iter): Int {
                 return result;
             }
             // skip over all great-grandchildren
-            for let _: &U32 = grandchild.child {
+            for ok let _: &U32 = grandchild.child {
                 let mut tmp: Iter;
                 let result: Int = next_child(tree, &mut grandchild, &mut tmp);
                 if result != 0 {

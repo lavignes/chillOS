@@ -6,7 +6,7 @@ import functools
 import json
 import os
 import sys
-from typing import List, Mapping, Optional, Set, Tuple, Union, Sequence, cast
+from typing import Dict, List, Mapping, Optional, Set, Tuple, Union, Sequence, cast
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -213,6 +213,8 @@ class Lexer:
             'sizeof': 'SIZEOF',
             'union': 'UNION',
             'lengthof': 'LENGTHOF',
+            'err': 'ERR',
+            'ok': 'OK',
     }
 
     tokens = list(reserved.values()) + ['ID', 'INTEGER', 'BOOL', 'BRACE_OPEN', 'BRACE_CLOSE',
@@ -382,7 +384,7 @@ class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
         self.scopes = [dict()]
         self.aliases = dict() # use foo as bar;
 
@@ -402,9 +404,9 @@ class Parser:
         ('left', 'SHIFT_LEFT', 'SHIFT_RIGHT'),
         ('left', 'PLUS', 'MINUS'),
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
-        ('left', 'AS'),
+        ('left', 'AS', 'OK', 'ERR'),
         ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF', 'LENGTHOF'),
-        ('left', 'PAREN_OPEN', 'DOT', 'BRACKET_OPEN')
+        ('left', 'PAREN_OPEN', 'DOT', 'BRACKET_OPEN'),
     )
 
     def p_pkg(self, p):
@@ -520,6 +522,7 @@ class Parser:
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = p[4]
         val = ExprStruct(ty=p[4], vals=p[7])
+        STRUCTS[name] = p[4]
         p[0] = PkgBind(line=p.lineno(1), name=name, ty=p[4], pub=False, val=val, attrs=[], mut=False)
 
     def p_pkg_bind_3(self, p):
@@ -991,16 +994,29 @@ class Parser:
 
     def p_for_let_stmt_1(self, p):
         '''
-        for_let_stmt : FOR if_let_bind stmt_block end_scope
+        for_let_stmt : FOR OK if_let_bind stmt_block end_scope
         '''
-        p[0] = StmtForLet(line=p.lineno(1), bind=p[2], stmts=p[3], label=None)
+        p[0] = StmtForLet(line=p.lineno(1), ok=True, bind=p[3], stmts=p[4], label=None)
 
     def p_for_let_stmt_2(self, p):
         '''
-        for_stmt : FOR DOUBLE_COLON ID if_let_bind stmt_block end_scope
+        for_stmt : FOR DOUBLE_COLON ID OK if_let_bind stmt_block end_scope
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
-        p[0] = StmtForLet(line=p.lineno(1), bind=p[4], stmts=p[5], label=p[3])
+        p[0] = StmtForLet(line=p.lineno(1), ok=True, bind=p[5], stmts=p[6], label=p[3])
+
+    def p_for_let_stmt_3(self, p):
+        '''
+        for_let_stmt : FOR ERR if_let_bind stmt_block end_scope
+        '''
+        p[0] = StmtForLet(line=p.lineno(1), ok=False, bind=p[3], stmts=p[4], label=None)
+
+    def p_for_let_stmt_4(self, p):
+        '''
+        for_stmt : FOR DOUBLE_COLON ID ERR if_let_bind stmt_block end_scope
+        '''
+        self.scopes[-1][Name('*', p[3])] = p[3]
+        p[0] = StmtForLet(line=p.lineno(1), ok=False, bind=p[5], stmts=p[6], label=p[3])
 
     def p_if_stmt_1(self, p):
         '''
@@ -1043,22 +1059,28 @@ class Parser:
 
     def p_if_let_stmt_1(self, p):
         '''
-        if_let_stmt : IF if_let_bind stmt_block end_scope
+        if_let_stmt : IF OK if_let_bind stmt_block end_scope
         '''
-        p[0] = StmtIfLet(line=p.lineno(1), bind=p[2], stmts=p[3], else_stmts=[], label=None)
+        p[0] = StmtIfLet(line=p.lineno(1), ok=True, bind=p[3], stmts=p[4], else_stmts=[], label=None)
 
     def p_if_let_stmt_2(self, p):
         '''
-        if_let_stmt : IF if_let_bind stmt_block end_scope ELSE stmt_block
+        if_let_stmt : IF OK if_let_bind stmt_block end_scope ELSE stmt_block
         '''
-        p[0] = StmtIfLet(line=p.lineno(1), bind=p[2], stmts=p[3], else_stmts=p[6], label=None)
+        p[0] = StmtIfLet(line=p.lineno(1), ok=True, bind=p[3], stmts=p[4], else_stmts=p[7], label=None)
 
     def p_if_let_stmt_4(self, p):
         '''
-        if_stmt : IF DOUBLE_COLON ID if_let_bind stmt_block end_scope
+        if_let_stmt : IF ERR if_let_bind stmt_block end_scope ELSE stmt_block
+        '''
+        p[0] = StmtIfLet(line=p.lineno(1), ok=False, bind=p[3], stmts=p[4], else_stmts=p[7], label=None)
+
+    def p_if_let_stmt_5(self, p):
+        '''
+        if_let_stmt : IF DOUBLE_COLON ID OK if_let_bind stmt_block end_scope
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
-        p[0] = StmtIfLet(line=p.lineno(1), bind=p[4], stmts=p[5], else_stmts=[], label=p[3])
+        p[0] = StmtIfLet(line=p.lineno(1), ok=True, bind=p[5], stmts=p[6], else_stmts=[], label=p[3])
 
     def p_if_let_bind_1(self, p):
         '''
@@ -1086,6 +1108,7 @@ class Parser:
              | sizeof_expr
              | lengthof_expr
              | primary_expr
+             | fallible_expr
         '''
         p[0] = p[1]
 
@@ -1166,17 +1189,17 @@ class Parser:
         '''
         p[0] = ExprCast(ty=p[3], expr=p[1])
 
-    def p_cast_expr_2(self, p):
+    def p_fallible_expr_1(self, p):
         '''
-        cast_expr : expr AS QUESTION type
+        fallible_expr : expr OK type
         '''
-        p[0] = ExprCast(ty=TypeQPointer(TypePointer(p[3], mut=False)), expr=p[1])
+        p[0] = ExprFallible(ty=TypeFallible(p[3]), expr=p[1], ok=True)
 
-    def p_cast_expr_3(self, p):
+    def p_fallible_expr_2(self, p):
         '''
-        cast_expr : expr AS QUESTION MUT type
+        fallible_expr : expr ERR type
         '''
-        p[0] = ExprCast(ty=TypeQPointer(TypePointer(p[3], mut=True)), expr=p[1])
+        p[0] = ExprFallible(ty=TypeFallible(p[3]), expr=p[1], ok=False)
 
     def p_sizeof_expr(self, p):
         '''
@@ -1370,6 +1393,7 @@ class StmtIf(Stmt):
 
 @dataclass
 class StmtIfLet(Stmt):
+    ok: bool
     bind: StmtBind
     stmts: Sequence[Stmt]
     else_stmts: Sequence[Stmt]
@@ -1383,6 +1407,7 @@ class StmtFor(Stmt):
 
 @dataclass
 class StmtForLet(Stmt):
+    ok: bool
     bind: StmtBind
     stmts: Sequence[Stmt]
     label: Optional[str]
@@ -1417,6 +1442,11 @@ class ExprName(Expr):
 class ExprCast(Expr):
     ty: Union[Type, Name]
     expr: Expr
+
+@dataclass
+class ExprFallible(Expr):
+    expr: Expr
+    ok: bool
 
 @dataclass
 class ExprIndex(Expr):
@@ -1488,6 +1518,8 @@ ARRAY_FORWARDS: Set[str] = set()
 ARRAY_STRUCTS: Set[str] = set()
 QPOINTER_FORWARDS: Set[str] = set()
 QPOINTER_STRUCTS: Set[str] = set()
+FALLIBLE_FORWARDS: Set[str] = set()
+FALLIBLE_STRUCTS: Set[str] = set()
 VIEW_FORWARDS: Set[str] = set()
 VIEW_STRUCTS: Set[str] = set()
 LAMBDA_FORWARDS: List[str] = []
@@ -1508,6 +1540,10 @@ def mangle_type_name(ty: Union[Type, Name]) -> str:
         QPOINTER_FORWARDS.add(f'struct __qptr{mangle_type_name(ty.ty)};')
         QPOINTER_STRUCTS.add(f'struct __qptr{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __ptr; }};')
         return f'__qptr{mangle_type_name(ty.ty)}'
+    if isinstance(ty, TypeFallible):
+        FALLIBLE_FORWARDS.add(f'struct __fal{mangle_type_name(ty.ty)};')
+        FALLIBLE_STRUCTS.add(f'struct __fal{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __ok; Int __err; }};')
+        return f'__fal{mangle_type_name(ty.ty)}'
     if isinstance(ty, TypeNil):
         return ty.ffi
     if isinstance(ty, TypeArray):
@@ -1557,7 +1593,7 @@ def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
 
 def emit_type_or_name(ty: Union[Type, Name]) -> str:
     if isinstance(ty, Type):
-        if isinstance(ty, (TypeArray, TypeQPointer, TypeView)):
+        if isinstance(ty, (TypeArray, TypeQPointer, TypeView, TypeFallible)):
             return f'struct {mangle_type_name(ty)}'
         return emit_type(ty)
     return emit_name(ty)
@@ -1600,6 +1636,12 @@ def emit_expr(expr: Expr) -> str:
     if isinstance(expr, ExprView):
         expr_type(expr)
         return f'((struct {mangle_type_name(cast(Union[Type, Name], expr.ty))}){{ .__items = {emit_expr(expr.lhs)}, .__length = {emit_expr(expr.rhs)} }})'
+    if isinstance(expr, ExprFallible):
+        ty = expr.ty
+        expr_type(expr)
+        if expr.ok:
+            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__ok = {emit_expr(expr.expr)}, .__err = 0 }})'
+        return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__err = {emit_expr(expr.expr)} }})'
     if isinstance(expr, ExprCast):
         ty = expr.ty
         if isinstance(ty, TypeQPointer):
@@ -1684,8 +1726,14 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         return output
     if isinstance(stmt, StmtIfLet):
         output += [pad + '{']
-        output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
-        output += [pad + f'if ({stmt.bind.name}) {{']
+        val = cast(Expr, stmt.bind.val)
+        if isinstance(stmt.bind.ty, TypePointer):
+            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(val)}.__ptr;']
+            output += [pad + f'if ({stmt.bind.name}) {{']
+        else:
+            output += [pad + f'{mangle_type_name(TypeFallible(ty=stmt.bind.ty))} const __fal = {emit_expr(val)};']
+            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = __fal.__ok;']
+            output += [pad + f'if (__fal.__err == 0) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
@@ -1849,9 +1897,11 @@ for item in pkg.items:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
             pkg = json.load(fp=f)
             QPOINTER_FORWARDS.update(pkg['forward_qptrs'])
+            FALLIBLE_FORWARDS.update(pkg['forward_fallible'])
             VIEW_FORWARDS.update(pkg['forward_views'])
             ARRAY_FORWARDS.update(pkg['forward_arrays'])
             QPOINTER_STRUCTS.update(pkg['qptr_structs'])
+            FALLIBLE_STRUCTS.update(pkg['fallible_structs'])
             VIEW_STRUCTS.update(pkg['view_structs'])
             ARRAY_STRUCTS.update(pkg['array_structs'])
             forward_structs += pkg['forward_structs']
@@ -1883,6 +1933,9 @@ if not make_pkg:
         for line in QPOINTER_FORWARDS:
             print(line, file=f)
 
+        for line in FALLIBLE_FORWARDS:
+            print(line, file=f)
+
         for line in VIEW_FORWARDS:
             print(line, file=f)
 
@@ -1890,6 +1943,9 @@ if not make_pkg:
             print(line, file=f)
 
         for line in QPOINTER_STRUCTS:
+            print(line, file=f)
+
+        for line in FALLIBLE_STRUCTS:
             print(line, file=f)
 
         for line in VIEW_STRUCTS:
@@ -1916,11 +1972,13 @@ if not make_pkg:
 if make_pkg:
     pkg = {
         'forward_qptrs': list(QPOINTER_FORWARDS),
+        'forward_fallible': list(QPOINTER_FORWARDS),
         'forward_views': list(VIEW_FORWARDS),
         'forward_arrays': list(ARRAY_FORWARDS),
         'forward_structs': pub_forward_structs,
         'typedefs': pub_typedefs,
         'qptr_structs': list(QPOINTER_STRUCTS),
+        'fallible_structs': list(FALLIBLE_STRUCTS),
         'view_structs': list(VIEW_STRUCTS),
         'array_structs': list(ARRAY_STRUCTS),
         'structs': pub_structs,
