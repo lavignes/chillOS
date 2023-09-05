@@ -3,6 +3,8 @@ pkg K;
 
 use Kfdt;
 
+let FOO: ?mut U8 = 0 as ?mut U8;
+
 pub fn start(fdt_start: &U8) {
     let mut tree: Kfdt::Tree;
 

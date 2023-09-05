@@ -36,6 +36,10 @@ class TypeQPointer(Type):
     ty: TypePointer
 
 @dataclass
+class TypeFallible(Type):
+    ty: Union[Type, Name]
+
+@dataclass
 class TypeArray(Type):
     ty: Union[Type, Name]
     size: 'Expr'
@@ -708,6 +712,12 @@ class Parser:
         '''
         p[0] = TypeFn(args=p[3], rets=p[6])
 
+    def p_type_11(self, p):
+        '''
+        type : BANG type
+        '''
+        p[0] = TypeFallible(ty=p[2])
+
     def p_type_list_1(self, p):
         '''
         type_list : empty
@@ -916,6 +926,19 @@ class Parser:
              | expr_stmt
         '''
         p[0] = p[1]
+
+    def p_stmt_15(self, p):
+        '''
+        stmt : BRACE_OPEN begin_scope stmt_list BRACE_CLOSE end_scope
+        '''
+        p[0] = StmtBlock(line=p.lineno(1), stmts=p[3], label=None)
+
+    def p_stmt_16(self, p):
+        '''
+        stmt : BRACE_OPEN DOUBLE_COLON ID begin_scope stmt_list BRACE_CLOSE end_scope
+        '''
+        self.scopes[-1][Name('*', p[3])] = p[3]
+        p[0] = StmtBlock(line=p.lineno(1), stmts=p[5], label=p[3])
 
     def p_expr_stmt_1(self, p):
         '''
@@ -1334,6 +1357,11 @@ class StmtBreak(Stmt):
     label: Optional[str]
 
 @dataclass
+class StmtBlock(Stmt):
+    stmts: Sequence[Stmt]
+    label: Optional[str]
+
+@dataclass
 class StmtIf(Stmt):
     expr: 'Expr'
     stmts: Sequence[Stmt]
@@ -1646,6 +1674,14 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         if stmt.label is not None:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
         return output
+    if isinstance(stmt, StmtBlock):
+        output += [pad + '{']
+        for s in stmt.stmts:
+            output += emit_stmt(s, indent + 4)
+        output += [pad + '}']
+        if stmt.label is not None:
+            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+        return output
     if isinstance(stmt, StmtIfLet):
         output += [pad + '{']
         output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
@@ -1698,8 +1734,9 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         return output
     if isinstance(stmt, StmtForLet):
         output += [pad + '{']
+        output += [pad + f'while (1) {{']
         output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
-        output += [pad + f'while ({stmt.bind.name}) {{']
+        output += [pad + f'if ({stmt.bind.name} == 0) {{ break; }}']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         if stmt.label is not None:

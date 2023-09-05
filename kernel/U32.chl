@@ -7,9 +7,15 @@ pub let MIN: U32 = 0x0000_0000u32;
 pub let BITS: UInt = sizeof U32 * 8;
 
 pub fn find(items: [U32], predicate: fn(U32): Bool): UInt {
+    return find_ctx(items, predicate as &mut U8, fn(ctx: &mut U8, val: U32): Bool {
+        return (ctx as fn(U32): Bool)(val);
+    });
+}
+
+pub fn find_ctx(items: [U32], ctx: &mut U8, predicate: fn(&mut U8, U32): Bool): UInt {
     let mut i = 0u;
     for i < lengthof items {
-        if predicate(items[i]) {
+        if predicate(ctx, items[i]) {
             return i;
         }
         i += 1;
@@ -18,10 +24,16 @@ pub fn find(items: [U32], predicate: fn(U32): Bool): UInt {
 }
 
 pub fn map(dst: [mut U32], src: [U32], func: fn(U32): U32) {
+    map_ctx(dst, src, func as &mut U8, fn(ctx: &mut U8, val: U32): U32 {
+        return (ctx as fn(U32): U32)(val);
+    });
+}
+
+pub fn map_ctx(dst: [mut U32], src: [U32], ctx: &mut U8, func: fn(&mut U8, U32): U32) {
     let mut i = 0u;
     let mut length: UInt = UInt::min(lengthof dst, lengthof src);
     for i < length {
-        dst[i] = func(src[i]);
+        dst[i] = func(ctx, src[i]);
         i += 1;
     }
 }

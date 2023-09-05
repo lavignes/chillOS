@@ -11,9 +11,15 @@ pub fn is_zero(val: U8): Bool {
 }
 
 pub fn find(items: [U8], predicate: fn(U8): Bool): UInt {
+    return find_ctx(items, predicate as &mut U8, fn(ctx: &mut U8, val: U8): Bool {
+        return (ctx as fn(U8): Bool)(val);
+    });
+}
+
+pub fn find_ctx(items: [U8], ctx: &mut U8, predicate: fn(&mut U8, U8): Bool): UInt {
     let mut i = 0u;
     for i < lengthof items {
-        if predicate(items[i]) {
+        if predicate(ctx, items[i]) {
             return i;
         }
         i += 1;
