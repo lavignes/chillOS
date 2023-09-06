@@ -27,15 +27,13 @@ pub fn find_ctx(items: [U8], ctx: &mut U8, predicate: fn(&mut U8, U8): Bool): UI
     return UInt::MAX;
 }
 
-pub fn parse(into: &mut U8, base: UInt, str: [U8]): Int {
-    let mut tmp: UInt;
-    let ret: Int = UInt::parse(&mut tmp, base, str);
-    if ret != 0 {
-        return ret;
+pub fn parse(base: UInt, str: [U8]): !U8 {
+    if ok uint: UInt = UInt::parse(base, str) {
+        if uint > (MAX as UInt) {
+            return UInt::ERR_OUT_OF_RANGE err;
+        }
+        return uint as U8 ok;
+    } else e: Int {
+        return e err;
     }
-    if tmp > (MAX as UInt) {
-        return UInt::ERR_OUT_OF_RANGE;
-    }
-    *into = tmp as U8;
-    return 0;
 }

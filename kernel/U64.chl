@@ -6,15 +6,13 @@ pub let MAX: U64 = 0xFFFF_FFFF_FFFF_FFFFu64;
 pub let MIN: U64 = 0x0000_0000_0000_0000u64;
 pub let BITS: U64 = sizeof U64 * 8;
 
-pub fn parse(into: &mut U64, base: UInt, str: [U8]): Int {
-    let mut tmp: UInt;
-    let ret: Int = UInt::parse(&mut tmp, base, str);
-    if ret != 0 {
-        return ret;
+pub fn parse(base: UInt, str: [U8]): !U64 {
+    if ok uint: UInt = UInt::parse(base, str) {
+        if uint > (MAX as UInt) {
+            return UInt::ERR_OUT_OF_RANGE err;
+        }
+        return uint as U64 ok;
+    } else e: Int {
+        return e err;
     }
-    if tmp > (MAX as UInt) {
-        return UInt::ERR_OUT_OF_RANGE;
-    }
-    *into = tmp as U64;
-    return 0;
 }

@@ -92,16 +92,14 @@ pub fn log2(mut val: U32): U32 {
     return LOG2_TABLE[(val * 0x07C4_ACDD) >> 27];
 }
 
-pub fn parse(into: &mut U32, base: UInt, str: [U8]): Int {
-    let mut tmp: UInt;
-    let ret: Int = UInt::parse(&mut tmp, base, str);
-    if ret != 0 {
-        return ret;
+pub fn parse(base: UInt, str: [U8]): !U32 {
+    if ok uint: UInt = UInt::parse(base, str) {
+        if uint > (MAX as UInt) {
+            return UInt::ERR_OUT_OF_RANGE err;
+        }
+        return uint as U32 ok;
+    } else e: Int {
+        return e err;
     }
-    if tmp > (MAX as UInt) {
-        return UInt::ERR_OUT_OF_RANGE;
-    }
-    *into = tmp as U32;
-    return 0;
 }
 

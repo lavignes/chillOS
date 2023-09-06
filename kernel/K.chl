@@ -4,7 +4,7 @@ pkg K;
 use Kfdt;
 
 fn test(): !U32 {
-    return 0 ok U32;
+    return 0 ok;
 }
 
 pub fn start(fdt_start: &U8) {

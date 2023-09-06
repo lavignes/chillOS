@@ -6,7 +6,7 @@ import functools
 import json
 import os
 import sys
-from typing import Dict, List, Mapping, Optional, Set, Tuple, Union, Sequence, cast
+from typing import List, Mapping, Optional, Set, Tuple, Union, Sequence, cast
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -18,54 +18,54 @@ class Name:
     pkg: str
     ident: str
 
-@dataclass
+@dataclass(frozen=True)
 class Type(ABC):
     pass
 
-@dataclass
+@dataclass(frozen=True)
 class TypeInteger(Type):
     ffi: str
 
-@dataclass
+@dataclass(frozen=True)
 class TypePointer(Type):
     ty: Union[Type, Name]
     mut: bool
 
-@dataclass
+@dataclass(frozen=True)
 class TypeQPointer(Type):
     ty: TypePointer
 
-@dataclass
+@dataclass(frozen=True)
 class TypeFallible(Type):
     ty: Union[Type, Name]
 
-@dataclass
+@dataclass(frozen=True)
 class TypeArray(Type):
     ty: Union[Type, Name]
     size: 'Expr'
 
-@dataclass
+@dataclass(frozen=True)
 class TypeView(Type):
     ty: TypePointer
 
-@dataclass
+@dataclass(frozen=True)
 class TypeStruct(Type):
     fields: Sequence['Field']
 
-@dataclass
+@dataclass(frozen=True)
 class TypeUnion(Type):
     fields: Sequence['Field']
 
-@dataclass
+@dataclass(frozen=True)
 class TypeFn(Type):
     args: Sequence[Union[Type, Name]]
     rets: Union[Type, Name]
 
-@dataclass
+@dataclass(frozen=True)
 class TypeBool(Type):
     ffi: str
 
-@dataclass
+@dataclass(frozen=True)
 class TypeNil(Type):
     ffi: str
 
@@ -384,10 +384,10 @@ class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
         self.scopes = [dict()]
         self.aliases = dict() # use foo as bar;
-        self.return_type = []
+        self.return_types = []
 
     def parse(self, text: str) -> 'Pkg':
         lexer = Lexer()
@@ -575,23 +575,29 @@ class Parser:
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = name
-        if isinstance(p[7], TypeNil)
+        if isinstance(p[7], TypeNil):
             p[8] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
         p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=p[7], stmts=p[8])
 
-    def p_begin_return_type(self, p):
+    def p_begin_return_type_1(self, p):
         '''
         begin_return_type : empty
         '''
         self.return_types.append(Nil)
         p[0] = Nil
-        
-    def p_begin_return_type(self, p):
+
+    def p_begin_return_type_2(self, p):
         '''
-        begin_return_type : type
+        begin_return_type : COLON type
         '''
-        self.return_types.append(p[1])
-        p[0] = p[1]
+        self.return_types.append(p[2])
+        p[0] = p[2]
+
+    def p_end_return_type(self, p):
+        '''
+        end_return_type : empty
+        '''
+        self.return_types.pop()
 
     def p_begin_scope(self, p):
         '''
@@ -931,9 +937,9 @@ class Parser:
     def p_stmt_14(self, p):
         '''
         stmt : if_stmt
-             | if_let_stmt
+             | if_ok_stmt
              | for_stmt
-             | for_let_stmt
+             | for_ok_stmt
              | expr_stmt
         '''
         p[0] = p[1]
@@ -1000,31 +1006,31 @@ class Parser:
         self.scopes[-1][Name('*', p[3])] = p[3]
         p[0] = StmtFor(line=p.lineno(1), expr=p[4], stmts=p[5], label=p[3])
 
-    def p_for_let_stmt_1(self, p):
+    def p_for_ok_stmt_1(self, p):
         '''
-        for_let_stmt : FOR OK if_let_bind stmt_block end_scope
+        for_ok_stmt : FOR OK if_let_bind stmt_block end_scope
         '''
-        p[0] = StmtForLet(line=p.lineno(1), ok=True, bind=p[3], stmts=p[4], label=None)
+        p[0] = StmtForOk(line=p.lineno(1), ok=True, bind=p[3], stmts=p[4], label=None)
 
-    def p_for_let_stmt_2(self, p):
+    def p_for_ok_stmt_2(self, p):
         '''
         for_stmt : FOR DOUBLE_COLON ID OK if_let_bind stmt_block end_scope
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
-        p[0] = StmtForLet(line=p.lineno(1), ok=True, bind=p[5], stmts=p[6], label=p[3])
+        p[0] = StmtForOk(line=p.lineno(1), ok=True, bind=p[5], stmts=p[6], label=p[3])
 
-    def p_for_let_stmt_3(self, p):
+    def p_for_ok_stmt_3(self, p):
         '''
-        for_let_stmt : FOR ERR if_let_bind stmt_block end_scope
+        for_ok_stmt : FOR ERR if_let_bind stmt_block end_scope
         '''
-        p[0] = StmtForLet(line=p.lineno(1), ok=False, bind=p[3], stmts=p[4], label=None)
+        p[0] = StmtForOk(line=p.lineno(1), ok=False, bind=p[3], stmts=p[4], label=None)
 
-    def p_for_let_stmt_4(self, p):
+    def p_for_ok_stmt_4(self, p):
         '''
-        for_stmt : FOR DOUBLE_COLON ID ERR if_let_bind stmt_block end_scope
+        for_ok_stmt : FOR DOUBLE_COLON ID ERR if_let_bind stmt_block end_scope
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
-        p[0] = StmtForLet(line=p.lineno(1), ok=False, bind=p[5], stmts=p[6], label=p[3])
+        p[0] = StmtForOk(line=p.lineno(1), ok=False, bind=p[5], stmts=p[6], label=p[3])
 
     def p_if_stmt_1(self, p):
         '''
@@ -1065,44 +1071,70 @@ class Parser:
         self.scopes[-1][Name('*', p[3])] = p[3]
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[p[7]], label=p[3])
 
-    def p_if_let_stmt_1(self, p):
+    def p_if_ok_stmt_1(self, p):
         '''
-        if_let_stmt : IF OK if_let_bind stmt_block end_scope
+        if_ok_stmt : IF OK if_let_bind stmt_block end_scope
         '''
-        p[0] = StmtIfLet(line=p.lineno(1), ok=True, bind=p[3], stmts=p[4], else_stmts=[], label=None)
+        p[0] = StmtIfOk(line=p.lineno(1), ok=True, taken=p[3], stmts=p[4], not_taken=None, else_stmts=[], label=None)
 
-    def p_if_let_stmt_2(self, p):
+    def p_if_ok_stmt_2(self, p):
         '''
-        if_let_stmt : IF OK if_let_bind stmt_block end_scope ELSE stmt_block
+        if_ok_stmt : IF OK if_let_bind stmt_block end_scope ELSE stmt_block
         '''
-        p[0] = StmtIfLet(line=p.lineno(1), ok=True, bind=p[3], stmts=p[4], else_stmts=p[7], label=None)
+        p[0] = StmtIfOk(line=p.lineno(1), ok=True, taken=p[3], stmts=p[4], not_taken=None, else_stmts=p[7], label=None)
 
-    def p_if_let_stmt_4(self, p):
+    def p_if_ok_stmt_4(self, p):
         '''
-        if_let_stmt : IF ERR if_let_bind stmt_block end_scope ELSE stmt_block
+        if_ok_stmt : IF ERR if_let_bind stmt_block end_scope ELSE stmt_block
         '''
-        p[0] = StmtIfLet(line=p.lineno(1), ok=False, bind=p[3], stmts=p[4], else_stmts=p[7], label=None)
+        p[0] = StmtIfOk(line=p.lineno(1), ok=False, taken=p[3], stmts=p[4], not_taken=None, else_stmts=p[7], label=None)
 
-    def p_if_let_stmt_5(self, p):
+    def p_if_ok_stmt_2_1(self, p):
         '''
-        if_let_stmt : IF DOUBLE_COLON ID OK if_let_bind stmt_block end_scope
+        if_ok_stmt : IF OK if_let_bind stmt_block end_scope ELSE else_let_bind stmt_block
+        '''
+        p[0] = StmtIfOk(line=p.lineno(1), ok=True, taken=p[3], stmts=p[4], not_taken=p[7], else_stmts=p[8], label=None)
+
+    def p_if_ok_stmt_4_1(self, p):
+        '''
+        if_ok_stmt : IF ERR if_let_bind stmt_block end_scope ELSE else_let_bind stmt_block
+        '''
+        p[0] = StmtIfOk(line=p.lineno(1), ok=False, taken=p[3], stmts=p[4], not_taken=p[7], else_stmts=p[8], label=None)
+
+    def p_if_ok_stmt_5(self, p):
+        '''
+        if_ok_stmt : IF DOUBLE_COLON ID OK if_let_bind stmt_block end_scope
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
-        p[0] = StmtIfLet(line=p.lineno(1), ok=True, bind=p[5], stmts=p[6], else_stmts=[], label=p[3])
+        p[0] = StmtIfOk(line=p.lineno(1), ok=True, taken=p[5], stmts=p[6], not_taken=None, else_stmts=[], label=p[3])
 
     def p_if_let_bind_1(self, p):
         '''
-        if_let_bind : LET begin_scope ID COLON type EQUAL expr
+        if_let_bind : begin_scope ID COLON type EQUAL expr
         '''
-        self.scopes[-1][Name('*', p[3])] = p[5]
-        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=False)
+        self.scopes[-1][Name('*', p[2])] = p[4]
+        p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=p[4], val=p[6], mut=False)
 
     def p_if_let_bind_2(self, p):
         '''
-        if_let_bind : LET begin_scope MUT ID COLON type EQUAL expr
+        if_let_bind : begin_scope MUT ID COLON type EQUAL expr
         '''
-        self.scopes[-1][Name('*', p[4])] = p[6]
-        p[0] = StmtBind(line=p.lineno(1), name=p[4], ty=p[6], val=p[8], mut=True)
+        self.scopes[-1][Name('*', p[3])] = p[5]
+        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=True)
+
+    def p_else_let_bind_1(self, p):
+        '''
+        else_let_bind : begin_scope ID COLON type
+        '''
+        self.scopes[-1][Name('*', p[2])] = p[4]
+        p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=p[4], val=None, mut=False)
+
+    def p_else_let_bind_2(self, p):
+        '''
+        else_let_bind : begin_scope MUT ID COLON type
+        '''
+        self.scopes[-1][Name('*', p[4])] = p[5]
+        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=None, mut=True)
 
     def p_expr_1(self, p):
         '''
@@ -1199,15 +1231,27 @@ class Parser:
 
     def p_fallible_expr_1(self, p):
         '''
+        fallible_expr : expr OK
+        '''
+        p[0] = ExprFallible(ty=self.return_types[-1], expr=p[1], ok=True)
+
+    def p_fallible_expr_1_1(self, p):
+        '''
         fallible_expr : expr OK type
         '''
-        p[0] = ExprFallible(ty=TypeFallible(p[3]), expr=p[1], ok=True)
+        p[0] = ExprFallible(ty=p[3], expr=p[1], ok=True)
 
     def p_fallible_expr_2(self, p):
         '''
+        fallible_expr : expr ERR
+        '''
+        p[0] = ExprFallible(ty=self.return_types[-1], expr=p[1], ok=False)
+
+    def p_fallible_expr_2_1(self, p):
+        '''
         fallible_expr : expr ERR type
         '''
-        p[0] = ExprFallible(ty=TypeFallible(p[3]), expr=p[1], ok=False)
+        p[0] = ExprFallible(ty=p[3], expr=p[1], ok=False)
 
     def p_sizeof_expr(self, p):
         '''
@@ -1278,19 +1322,14 @@ class Parser:
 
     def p_primary_expr_5(self, p):
         '''
-        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE stmt_block end_scope
+        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE begin_return_type stmt_block end_scope end_return_type
         '''
         # TODO: lambdas need a way to restrict their scope only to globals.
         # will probably create some scope flags or something that indicate that we need
         # to skip to the global scope if we are searching from a lambda scope
-        p[6] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
-        p[0] = ExprFn(ty=None, args=p[4], rets=Nil, stmts=p[6])
-
-    def p_primary_expr_6(self, p):
-        '''
-        primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE COLON type stmt_block end_scope
-        '''
-        p[0] = ExprFn(ty=None, args=p[4], rets=p[7], stmts=p[8])
+        if isinstance(p[6], TypeNil):
+            p[7] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
+        p[0] = ExprFn(ty=None, args=p[4], rets=p[6], stmts=p[7])
 
     def p_init_list_1(self, p):
         '''
@@ -1400,10 +1439,11 @@ class StmtIf(Stmt):
     label: Optional[str]
 
 @dataclass
-class StmtIfLet(Stmt):
+class StmtIfOk(Stmt):
     ok: bool
-    bind: StmtBind
+    taken: StmtBind
     stmts: Sequence[Stmt]
+    not_taken: Optional[StmtBind]
     else_stmts: Sequence[Stmt]
     label: Optional[str]
 
@@ -1414,7 +1454,7 @@ class StmtFor(Stmt):
     label: Optional[str]
 
 @dataclass
-class StmtForLet(Stmt):
+class StmtForOk(Stmt):
     ok: bool
     bind: StmtBind
     stmts: Sequence[Stmt]
@@ -1732,21 +1772,30 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         if stmt.label is not None:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
         return output
-    if isinstance(stmt, StmtIfLet):
+    if isinstance(stmt, StmtIfOk):
         output += [pad + '{']
-        val = cast(Expr, stmt.bind.val)
-        if isinstance(stmt.bind.ty, TypePointer):
-            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(val)}.__ptr;']
-            output += [pad + f'if ({stmt.bind.name}) {{']
+        val = cast(Expr, stmt.taken.val)
+        if isinstance(stmt.taken.ty, TypePointer):
+            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = {emit_expr(val)}.__ptr;']
+            output += [pad + f'if ({stmt.taken.name}) {{']
         else:
-            output += [pad + f'{mangle_type_name(TypeFallible(ty=stmt.bind.ty))} const __fal = {emit_expr(val)};']
-            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = __fal.__ok;']
-            output += [pad + f'if (__fal.__err == 0) {{']
+            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), "__fal", mut=False)} = {emit_expr(val)};']
+            if stmt.ok:
+                output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = __fal.__ok;']
+                output += [pad + f'if (__fal.__err == 0) {{']
+            else:
+                output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = __fal.__err;']
+                output += [pad + f'if (__fal.__err != 0) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
         if len(stmt.else_stmts) > 0:
             output += [pad + 'else {']
+            if stmt.not_taken is not None:
+                if stmt.ok:
+                    output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut)} = __fal.__err;']
+                else:
+                    output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut)} = __fal.__ok;']
             for s in stmt.else_stmts:
                 output += emit_stmt(s, indent + 4)
             output += [pad + '}']
@@ -1788,7 +1837,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         if stmt.label is not None:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
         return output
-    if isinstance(stmt, StmtForLet):
+    if isinstance(stmt, StmtForOk):
         output += [pad + '{']
         output += [pad + f'while (1) {{']
         output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
