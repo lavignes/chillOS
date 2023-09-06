@@ -394,6 +394,7 @@ class Parser:
         return self.inner.parse(text, lexer=lexer.inner)
 
     precedence = (
+        ('left', 'OK', 'ERR'),
         ('left', 'TILDE'),
         ('left', 'OR'),
         ('left', 'AND'),
@@ -405,7 +406,7 @@ class Parser:
         ('left', 'SHIFT_LEFT', 'SHIFT_RIGHT'),
         ('left', 'PLUS', 'MINUS'),
         ('left', 'STAR', 'SOLIDUS', 'MODULUS'),
-        ('left', 'AS', 'OK', 'ERR'),
+        ('left', 'AS'),
         ('right', 'UMINUS', 'BANG', 'USTAR', 'UAMPERSAND', 'SIZEOF', 'LENGTHOF'),
         ('left', 'PAREN_OPEN', 'DOT', 'BRACKET_OPEN'),
     )
@@ -523,7 +524,6 @@ class Parser:
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = p[4]
         val = ExprStruct(ty=p[4], vals=p[7])
-        STRUCTS[name] = p[4]
         p[0] = PkgBind(line=p.lineno(1), name=name, ty=p[4], pub=False, val=val, attrs=[], mut=False)
 
     def p_pkg_bind_3(self, p):
@@ -937,9 +937,9 @@ class Parser:
     def p_stmt_14(self, p):
         '''
         stmt : if_stmt
-             | if_ok_stmt
+             | if_let_stmt
              | for_stmt
-             | for_ok_stmt
+             | for_let_stmt
              | expr_stmt
         '''
         p[0] = p[1]
@@ -1006,31 +1006,18 @@ class Parser:
         self.scopes[-1][Name('*', p[3])] = p[3]
         p[0] = StmtFor(line=p.lineno(1), expr=p[4], stmts=p[5], label=p[3])
 
-    def p_for_ok_stmt_1(self, p):
+    def p_for_let_stmt_1(self, p):
         '''
-        for_ok_stmt : FOR OK if_let_bind stmt_block end_scope
+        for_let_stmt : FOR LET if_let_bind stmt_block end_scope
         '''
-        p[0] = StmtForOk(line=p.lineno(1), ok=True, bind=p[3], stmts=p[4], label=None)
+        p[0] = StmtForLet(line=p.lineno(1), bind=p[3], stmts=p[4], label=None)
 
-    def p_for_ok_stmt_2(self, p):
+    def p_for_let_stmt_2(self, p):
         '''
-        for_stmt : FOR DOUBLE_COLON ID OK if_let_bind stmt_block end_scope
+        for_stmt : FOR DOUBLE_COLON ID LET if_let_bind stmt_block end_scope
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
-        p[0] = StmtForOk(line=p.lineno(1), ok=True, bind=p[5], stmts=p[6], label=p[3])
-
-    def p_for_ok_stmt_3(self, p):
-        '''
-        for_ok_stmt : FOR ERR if_let_bind stmt_block end_scope
-        '''
-        p[0] = StmtForOk(line=p.lineno(1), ok=False, bind=p[3], stmts=p[4], label=None)
-
-    def p_for_ok_stmt_4(self, p):
-        '''
-        for_ok_stmt : FOR DOUBLE_COLON ID ERR if_let_bind stmt_block end_scope
-        '''
-        self.scopes[-1][Name('*', p[3])] = p[3]
-        p[0] = StmtForOk(line=p.lineno(1), ok=False, bind=p[5], stmts=p[6], label=p[3])
+        p[0] = StmtForLet(line=p.lineno(1), bind=p[5], stmts=p[6], label=p[3])
 
     def p_if_stmt_1(self, p):
         '''
@@ -1071,42 +1058,30 @@ class Parser:
         self.scopes[-1][Name('*', p[3])] = p[3]
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[p[7]], label=p[3])
 
-    def p_if_ok_stmt_1(self, p):
+    def p_if_let_stmt_1(self, p):
         '''
-        if_ok_stmt : IF OK if_let_bind stmt_block end_scope
+        if_let_stmt : IF LET if_let_bind stmt_block end_scope
         '''
-        p[0] = StmtIfOk(line=p.lineno(1), ok=True, taken=p[3], stmts=p[4], not_taken=None, else_stmts=[], label=None)
+        p[0] = StmtIfLet(line=p.lineno(1), taken=p[3], stmts=p[4], not_taken=None, else_stmts=[], label=None)
 
-    def p_if_ok_stmt_2(self, p):
+    def p_if_let_stmt_2(self, p):
         '''
-        if_ok_stmt : IF OK if_let_bind stmt_block end_scope ELSE stmt_block
+        if_let_stmt : IF LET if_let_bind stmt_block end_scope ELSE stmt_block
         '''
-        p[0] = StmtIfOk(line=p.lineno(1), ok=True, taken=p[3], stmts=p[4], not_taken=None, else_stmts=p[7], label=None)
+        p[0] = StmtIfLet(line=p.lineno(1), taken=p[3], stmts=p[4], not_taken=None, else_stmts=p[7], label=None)
 
-    def p_if_ok_stmt_4(self, p):
+    def p_if_let_stmt_2_1(self, p):
         '''
-        if_ok_stmt : IF ERR if_let_bind stmt_block end_scope ELSE stmt_block
+        if_let_stmt : IF LET if_let_bind stmt_block end_scope ELSE else_let_bind stmt_block
         '''
-        p[0] = StmtIfOk(line=p.lineno(1), ok=False, taken=p[3], stmts=p[4], not_taken=None, else_stmts=p[7], label=None)
+        p[0] = StmtIfLet(line=p.lineno(1), taken=p[3], stmts=p[4], not_taken=p[7], else_stmts=p[8], label=None)
 
-    def p_if_ok_stmt_2_1(self, p):
+    def p_if_let_stmt_5(self, p):
         '''
-        if_ok_stmt : IF OK if_let_bind stmt_block end_scope ELSE else_let_bind stmt_block
-        '''
-        p[0] = StmtIfOk(line=p.lineno(1), ok=True, taken=p[3], stmts=p[4], not_taken=p[7], else_stmts=p[8], label=None)
-
-    def p_if_ok_stmt_4_1(self, p):
-        '''
-        if_ok_stmt : IF ERR if_let_bind stmt_block end_scope ELSE else_let_bind stmt_block
-        '''
-        p[0] = StmtIfOk(line=p.lineno(1), ok=False, taken=p[3], stmts=p[4], not_taken=p[7], else_stmts=p[8], label=None)
-
-    def p_if_ok_stmt_5(self, p):
-        '''
-        if_ok_stmt : IF DOUBLE_COLON ID OK if_let_bind stmt_block end_scope
+        if_let_stmt : IF DOUBLE_COLON ID LET if_let_bind stmt_block end_scope
         '''
         self.scopes[-1][Name('*', p[3])] = p[3]
-        p[0] = StmtIfOk(line=p.lineno(1), ok=True, taken=p[5], stmts=p[6], not_taken=None, else_stmts=[], label=p[3])
+        p[0] = StmtIfLet(line=p.lineno(1), taken=p[5], stmts=p[6], not_taken=None, else_stmts=[], label=p[3])
 
     def p_if_let_bind_1(self, p):
         '''
@@ -1124,17 +1099,17 @@ class Parser:
 
     def p_else_let_bind_1(self, p):
         '''
-        else_let_bind : begin_scope ID COLON type
+        else_let_bind : begin_scope ID
         '''
-        self.scopes[-1][Name('*', p[2])] = p[4]
-        p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=p[4], val=None, mut=False)
+        self.scopes[-1][Name('*', p[2])] = Int
+        p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=Int, val=None, mut=False)
 
     def p_else_let_bind_2(self, p):
         '''
-        else_let_bind : begin_scope MUT ID COLON type
+        else_let_bind : begin_scope MUT ID
         '''
-        self.scopes[-1][Name('*', p[4])] = p[5]
-        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=None, mut=True)
+        self.scopes[-1][Name('*', p[4])] = Int
+        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=Int, val=None, mut=True)
 
     def p_expr_1(self, p):
         '''
@@ -1439,8 +1414,7 @@ class StmtIf(Stmt):
     label: Optional[str]
 
 @dataclass
-class StmtIfOk(Stmt):
-    ok: bool
+class StmtIfLet(Stmt):
     taken: StmtBind
     stmts: Sequence[Stmt]
     not_taken: Optional[StmtBind]
@@ -1454,8 +1428,7 @@ class StmtFor(Stmt):
     label: Optional[str]
 
 @dataclass
-class StmtForOk(Stmt):
-    ok: bool
+class StmtForLet(Stmt):
     bind: StmtBind
     stmts: Sequence[Stmt]
     label: Optional[str]
@@ -1772,7 +1745,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         if stmt.label is not None:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
         return output
-    if isinstance(stmt, StmtIfOk):
+    if isinstance(stmt, StmtIfLet):
         output += [pad + '{']
         val = cast(Expr, stmt.taken.val)
         if isinstance(stmt.taken.ty, TypePointer):
@@ -1780,22 +1753,15 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             output += [pad + f'if ({stmt.taken.name}) {{']
         else:
             output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), "__fal", mut=False)} = {emit_expr(val)};']
-            if stmt.ok:
-                output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = __fal.__ok;']
-                output += [pad + f'if (__fal.__err == 0) {{']
-            else:
-                output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = __fal.__err;']
-                output += [pad + f'if (__fal.__err != 0) {{']
+            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = __fal.__ok;']
+            output += [pad + f'if (__fal.__err == 0) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
         if len(stmt.else_stmts) > 0:
             output += [pad + 'else {']
             if stmt.not_taken is not None:
-                if stmt.ok:
-                    output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut)} = __fal.__err;']
-                else:
-                    output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut)} = __fal.__ok;']
+                output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut)} = __fal.__err;']
             for s in stmt.else_stmts:
                 output += emit_stmt(s, indent + 4)
             output += [pad + '}']
@@ -1837,7 +1803,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         if stmt.label is not None:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
         return output
-    if isinstance(stmt, StmtForOk):
+    if isinstance(stmt, StmtForLet):
         output += [pad + '{']
         output += [pad + f'while (1) {{']
         output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
@@ -1954,12 +1920,12 @@ for item in pkg.items:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
             pkg = json.load(fp=f)
             QPOINTER_FORWARDS.update(pkg['forward_qptrs'])
-            FALLIBLE_FORWARDS.update(pkg['forward_fallible'])
             VIEW_FORWARDS.update(pkg['forward_views'])
+            FALLIBLE_FORWARDS.update(pkg['forward_fallible'])
             ARRAY_FORWARDS.update(pkg['forward_arrays'])
             QPOINTER_STRUCTS.update(pkg['qptr_structs'])
-            FALLIBLE_STRUCTS.update(pkg['fallible_structs'])
             VIEW_STRUCTS.update(pkg['view_structs'])
+            FALLIBLE_STRUCTS.update(pkg['fallible_structs'])
             ARRAY_STRUCTS.update(pkg['array_structs'])
             forward_structs += pkg['forward_structs']
             typedefs += pkg['typedefs']
@@ -1990,10 +1956,10 @@ if not make_pkg:
         for line in QPOINTER_FORWARDS:
             print(line, file=f)
 
-        for line in FALLIBLE_FORWARDS:
+        for line in VIEW_FORWARDS:
             print(line, file=f)
 
-        for line in VIEW_FORWARDS:
+        for line in FALLIBLE_FORWARDS:
             print(line, file=f)
 
         for line in ARRAY_STRUCTS:
@@ -2002,10 +1968,10 @@ if not make_pkg:
         for line in QPOINTER_STRUCTS:
             print(line, file=f)
 
-        for line in FALLIBLE_STRUCTS:
+        for line in VIEW_STRUCTS:
             print(line, file=f)
 
-        for line in VIEW_STRUCTS:
+        for line in FALLIBLE_STRUCTS:
             print(line, file=f)
 
         for line in typedefs:
@@ -2029,14 +1995,14 @@ if not make_pkg:
 if make_pkg:
     pkg = {
         'forward_qptrs': list(QPOINTER_FORWARDS),
-        'forward_fallible': list(QPOINTER_FORWARDS),
         'forward_views': list(VIEW_FORWARDS),
+        'forward_fallible': list(FALLIBLE_FORWARDS),
         'forward_arrays': list(ARRAY_FORWARDS),
         'forward_structs': pub_forward_structs,
         'typedefs': pub_typedefs,
         'qptr_structs': list(QPOINTER_STRUCTS),
-        'fallible_structs': list(FALLIBLE_STRUCTS),
         'view_structs': list(VIEW_STRUCTS),
+        'fallible_structs': list(FALLIBLE_STRUCTS),
         'array_structs': list(ARRAY_STRUCTS),
         'structs': pub_structs,
         'forward_fns': pub_forward_fns

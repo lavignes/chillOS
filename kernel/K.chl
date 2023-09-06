@@ -3,12 +3,13 @@ pkg K;
 
 use Kfdt;
 
-fn test(): !U32 {
-    return 0 ok;
-}
-
 pub fn start(fdt_start: &U8) {
     let mut tree: Kfdt::Tree;
+    if let mut t: Tree = Kfdt::from_addr(fdt_start) {
+        tree = t;
+    } else {
+        halt();
+    }
 
     if Kfdt::init_from_addr(&mut tree, fdt_start) != 0 {
         halt();

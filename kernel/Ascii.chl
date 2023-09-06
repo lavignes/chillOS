@@ -2,6 +2,8 @@ pkg Ascii;
 
 use UInt;
 
+pub let ERR_NOT_FOUND: Int = -1;
+
 pub fn compare(lhs: [U8], rhs: [U8]): Int {
     let length = lengthof lhs;
     if (length != lengthof rhs) || (length == 0) {
@@ -21,9 +23,9 @@ pub fn compare(lhs: [U8], rhs: [U8]): Int {
     return 0;
 }
 
-pub fn find(str: [U8], substr: [U8]): UInt {
+pub fn find(str: [U8], substr: [U8]): !UInt {
     if lengthof substr == 0 {
-        return 0;
+        return ERR_NOT_FOUND err;
     }
     let mut i = 0u;
     for::outer i < lengthof str {
@@ -39,9 +41,9 @@ pub fn find(str: [U8], substr: [U8]): UInt {
             }
             j += 1;
         }
-        return i;
+        return i ok;
     }
-    return UInt::MAX;
+    return ERR_NOT_FOUND err;
 }
 
 pub fn split(str: [U8], substr: [U8], consumer: fn([U8]): Int): Int {
@@ -54,16 +56,16 @@ pub fn split_ctx(str: [U8], substr: [U8], ctx: &mut U8, consumer: fn(&mut U8, [U
     let mut i = 0u;
     let mut view: [U8] = &str[i] ~ lengthof str - i;
     for i < lengthof str {
-        let pos: UInt = find(view, substr);
-        if pos == UInt::MAX {
+        if let pos: UInt = find(view, substr) {
+            let result: Int = consumer(ctx, &str[i] ~ pos);
+            if result != 0 {
+                return result;
+            }
+            i += pos + lengthof substr;
+            view = &str[i] ~ lengthof str - i;
+        } else {
             return consumer(ctx, view);
         }
-        let result: UInt = consumer(ctx, &str[i] ~ pos);
-        if result != 0 {
-            return result;
-        }
-        i += pos + lengthof substr;
-        view = &str[i] ~ lengthof str - i;
     }
     return 0;
 }

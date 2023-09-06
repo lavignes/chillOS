@@ -7,12 +7,12 @@ pub let MIN: U64 = 0x0000_0000_0000_0000u64;
 pub let BITS: U64 = sizeof U64 * 8;
 
 pub fn parse(base: UInt, str: [U8]): !U64 {
-    if ok uint: UInt = UInt::parse(base, str) {
+    if let uint: UInt = UInt::parse(base, str) {
         if uint > (MAX as UInt) {
             return UInt::ERR_OUT_OF_RANGE err;
         }
         return uint as U64 ok;
-    } else e: Int {
+    } else e {
         return e err;
     }
 }

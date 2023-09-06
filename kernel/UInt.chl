@@ -7,6 +7,13 @@ pub let MAX: UInt = 0xFFFF_FFFF_FFFF_FFFFu;
 pub let MIN: UInt = 0x0000_0000_0000_0000u;
 pub let BITS: UInt  = sizeof UInt * 8;
 
+pub fn is_err(val: !UInt): Bool {
+    if let _ : UInt = val {
+        return true;
+    }
+    return false;
+}
+
 pub fn min(lhs: UInt, rhs: UInt): UInt {
     if lhs < rhs {
         return lhs;
