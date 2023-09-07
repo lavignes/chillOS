@@ -6,7 +6,7 @@ pub let MAX: U32 = 0xFFFF_FFFFu32;
 pub let MIN: U32 = 0x0000_0000u32;
 pub let BITS: UInt = sizeof U32 * 8;
 
-pub let ERR_NOT_FOUND: Int = -1;
+pub let ERR_NOT_FOUND: Int = 0;
 
 pub fn find(items: [U32], predicate: fn(U32): Bool): !UInt {
     return find_ctx(items, predicate as &mut U8, fn(ctx: &mut U8, val: U32): Bool {
@@ -95,13 +95,10 @@ pub fn log2(mut val: U32): U32 {
 }
 
 pub fn parse(base: UInt, str: [U8]): !U32 {
-    if let uint: UInt = UInt::parse(base, str) {
-        if uint > (MAX as UInt) {
-            return UInt::ERR_OUT_OF_RANGE err;
-        }
-        return uint as U32 ok;
-    } else e {
-        return e err;
+    try let uint: UInt = UInt::parse(base, str);
+    if uint > (MAX as UInt) {
+        return UInt::ERR_OUT_OF_RANGE err;
     }
+    return uint as U32 ok;
 }
 

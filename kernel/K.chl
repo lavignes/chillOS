@@ -5,18 +5,12 @@ use Kfdt;
 
 pub fn start(fdt_start: &U8) {
     let mut tree: Kfdt::Tree;
-    if let mut t: Tree = Kfdt::from_addr(fdt_start) {
-        tree = t;
-    } else {
-        halt();
-    }
-
-    if Kfdt::init_from_addr(&mut tree, fdt_start) != 0 {
+    try let _: Nil = Kfdt::init_from_addr(&mut tree, fdt_start) else {
         halt();
     }
 
     let mut uart: Kfdt::Uart;
-    if Kfdt::find_uart(&mut tree, &mut uart) != 0 {
+    try let _: Nil = Kfdt::find_uart(&mut tree, &mut uart) else {
         halt();
     }
 

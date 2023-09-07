@@ -190,6 +190,8 @@ PRIMS: Mapping[Name, Type] = {
     Name('*', 'Int'): Int,
 }
 
+COUNTER: int = 0
+
 class Lexer:
     def __init__(self):
         self.inner = lex.lex(module=self)
@@ -216,6 +218,7 @@ class Lexer:
             'err': 'ERR',
             'ok': 'OK',
             'try': 'TRY',
+            'nil': 'NIL',
     }
 
     tokens = list(reserved.values()) + ['ID', 'INTEGER', 'BOOL', 'BRACE_OPEN', 'BRACE_CLOSE',
@@ -295,6 +298,10 @@ class Lexer:
 
     def t_ID(self, t):
         r'[a-zA-Z_][a-zA-Z0-9_]*'
+        if t.value == '_':
+            global COUNTER
+            COUNTER += 1
+            t.value = f'__noname{COUNTER}'
         t.type = self.reserved.get(t.value, 'ID')
         return t
 
@@ -385,7 +392,7 @@ class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
         self.scopes = [dict()]
         self.aliases = dict() # use foo as bar;
         self.return_types = []
@@ -1089,23 +1096,17 @@ class Parser:
         '''
         try_stmt : TRY LET ID COLON type EQUAL expr try_else
         '''
-        self.scopes[-1][Name('*', p[3])] = p[3]
+        self.scopes[-1][Name('*', p[3])] = p[5]
         bind = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=False)
-        p[0] = StmtTryLet(line=p.lineno(1), bind=bind, else_bind=p[8][0], else_stmts=p[8][1])
+        p[0] = StmtTryLet(line=p.lineno(1), bind=bind, else_bind=p[8][0], else_stmts=p[8][1], func_return_type=self.return_types[-1])
 
     def p_try_let_stmt_2(self, p):
         '''
         try_stmt : TRY LET MUT ID COLON type EQUAL expr try_else
         '''
-        self.scopes[-1][Name('*', p[4])] = p[4]
+        self.scopes[-1][Name('*', p[4])] = p[6]
         bind = StmtBind(line=p.lineno(1), name=p[4], ty=p[6], val=p[8], mut=True)
-        p[0] = StmtTryLet(line=p.lineno(1), bind=bind, else_bind=p[9][0], else_stmts=p[9][1])
-
-    def p_try_assign_stmt(self, p):
-        '''
-        try_stmt : TRY expr_stmt try_else
-        '''
-        p[0] = StmtTryAssign(line=p.lineno(1), stmt=p[2], else_bind=p[3][0], else_stmts=p[3][1])
+        p[0] = StmtTryLet(line=p.lineno(1), bind=bind, else_bind=p[9][0], else_stmts=p[9][1], func_return_type=self.return_types[-1])
 
     def p_try_else_1(self, p):
         '''
@@ -1114,6 +1115,12 @@ class Parser:
         p[0] = (None, [])
 
     def p_try_else_2(self, p):
+        '''
+        try_else : ELSE stmt_block
+        '''
+        p[0] = (None, p[2])
+
+    def p_try_else_3(self, p):
         '''
         try_else : ELSE else_let_bind stmt_block end_scope
         '''
@@ -1318,7 +1325,13 @@ class Parser:
         '''
         p[0] = ExprBool(ty=Bool, val=p[1])
 
-    def p_primary_expr_4(self, p):
+    def p_primary_expr_5(self, p):
+        '''
+        primary_expr : NIL
+        '''
+        p[0] = ExprNil(ty=Nil)
+
+    def p_primary_expr_6(self, p):
         '''
         primary_expr : STRING
         '''
@@ -1331,7 +1344,7 @@ class Parser:
         ty = TypePointer(ty=U8, mut=False)
         p[0] = ExprView(ty=TypeView(ty), lhs=ExprUnaryOp(ty=ty, op='&', rhs=lhs), rhs=size)
 
-    def p_primary_expr_5(self, p):
+    def p_primary_expr_7(self, p):
         '''
         primary_expr : FN PAREN_OPEN begin_scope arg_list PAREN_CLOSE begin_return_type stmt_block end_scope end_return_type
         '''
@@ -1460,14 +1473,9 @@ class StmtIfLet(Stmt):
 @dataclass
 class StmtTryLet(Stmt):
     bind: StmtBind
-    else_bind: StmtBind
+    else_bind: Optional[StmtBind]
     else_stmts: Sequence[Stmt]
-
-@dataclass
-class StmtTryAssign(Stmt):
-    stmt: StmtAssign
-    else_bind: StmtBind
-    else_stmts: Sequence[Stmt]
+    func_return_type: TypeFallible
 
 @dataclass
 class StmtFor(Stmt):
@@ -1611,7 +1619,7 @@ def mangle_type_name(ty: Union[Type, Name]) -> str:
         return f'__qptr{mangle_type_name(ty.ty)}'
     if isinstance(ty, TypeFallible):
         FALLIBLE_FORWARDS.add(f'struct __fal{mangle_type_name(ty.ty)};')
-        FALLIBLE_STRUCTS.add(f'struct __fal{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __ok; Int __err; }};')
+        FALLIBLE_STRUCTS.add(f'struct __fal{mangle_type_name(ty.ty)} {{ union {{ {emit_type_or_name(ty.ty)} __ok; Int __err; }} __as; UInt __var; }};')
         return f'__fal{mangle_type_name(ty.ty)}'
     if isinstance(ty, TypeNil):
         return ty.ffi
@@ -1709,8 +1717,8 @@ def emit_expr(expr: Expr) -> str:
         ty = expr.ty
         expr_type(expr)
         if expr.ok:
-            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__ok = {emit_expr(expr.expr)}, .__err = 0 }})'
-        return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__err = {emit_expr(expr.expr)} }})'
+            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__as = {{ .__ok = {emit_expr(expr.expr)} }}, .__var = 0 }})'
+        return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__as = {{ .__err = {emit_expr(expr.expr)} }}, .__var = 1 }})'
     if isinstance(expr, ExprCast):
         ty = expr.ty
         if isinstance(ty, TypeQPointer):
@@ -1767,6 +1775,8 @@ def emit_expr(expr: Expr) -> str:
     return f'{expr}'
 
 def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
+    global COUNTER
+    COUNTER += 1
     pad = ' ' * indent
     output = [pad + f'#line {stmt.line} "{filename}"']
     if isinstance(stmt, StmtRet):
@@ -1796,25 +1806,50 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     if isinstance(stmt, StmtIfLet):
         output += [pad + '{']
         val = cast(Expr, stmt.taken.val)
+        fal = f'__fal{COUNTER}'
         if isinstance(stmt.taken.ty, TypePointer):
             output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = {emit_expr(val)}.__ptr;']
-            output += [pad + f'if ({stmt.taken.name}) {{']
+            output += [pad + f'if ({stmt.taken.name} != 0) {{']
         else:
-            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), "__fal", mut=False)} = {emit_expr(val)};']
-            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = __fal.__ok;']
-            output += [pad + f'if (__fal.__err == 0) {{']
+            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), fal, mut=False)} = {emit_expr(val)};']
+            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = {fal}.__as.__ok;']
+            output += [pad + f'if ({fal}.__var == 0) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
         if len(stmt.else_stmts) > 0:
             output += [pad + 'else {']
             if stmt.not_taken is not None:
-                output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut)} = __fal.__err;']
+                output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut)} = {fal}.__as.__err;']
             for s in stmt.else_stmts:
                 output += emit_stmt(s, indent + 4)
             output += [pad + '}']
         if stmt.label is not None:
             output += [pad + f'__label_break_{stmt.label}: (void)0;']
+        output += [pad + '}']
+        return output
+    if isinstance(stmt, StmtTryLet):
+        val = cast(Expr, stmt.bind.val)
+        fal = f'__fal{COUNTER}'
+        if isinstance(stmt.bind.ty, TypePointer):
+            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(val)}.__ptr;']
+            output += [pad + f'if ({stmt.bind.name} == 0) {{']
+            if stmt.else_bind is not None:
+                output += [pad + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut)} = {stmt.bind.name};']
+        else:
+            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False)} = {emit_expr(val)};']
+            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {fal}.__as.__ok;']
+            output += [pad + f'if ({fal}.__var == 1) {{']
+            if stmt.else_bind is not None:
+                output += [pad + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut)} = {fal}.__as.__err;']
+        if len(stmt.else_stmts) > 0:
+            for s in stmt.else_stmts:
+                output += emit_stmt(s, indent + 4)
+        else:
+            if isinstance(stmt.bind.ty, TypePointer):
+                output += [pad + f'    return {stmt.bind.name};']
+            else:
+                output += [pad + f'    return ((struct {mangle_type_name(stmt.func_return_type)}){{ .__as = {{ .__err = {fal}.__as.__err }}, .__var = 1 }});']
         output += [pad + '}']
         return output
     if isinstance(stmt, StmtBreak):

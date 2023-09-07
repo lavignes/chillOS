@@ -6,7 +6,7 @@ pub let MIN: U8 = 0x00u8;
 pub let MAX: U8 = 0xFFu8;
 pub let BITS: UInt = sizeof U8 * 8;
 
-pub let ERR_NOT_FOUND: Int = -1;
+pub let ERR_NOT_FOUND: Int = 0;
 
 pub fn is_zero(val: U8): Bool {
     return val == 0;
@@ -30,12 +30,9 @@ pub fn find_ctx(items: [U8], ctx: &mut U8, predicate: fn(&mut U8, U8): Bool): !U
 }
 
 pub fn parse(base: UInt, str: [U8]): !U8 {
-    if let uint: UInt = UInt::parse(base, str) {
-        if uint > (MAX as UInt) {
-            return UInt::ERR_OUT_OF_RANGE err;
-        }
-        return uint as U8 ok;
-    } else e {
-        return e err;
+    try let uint: UInt = UInt::parse(base, str);
+    if uint > (MAX as UInt) {
+        return UInt::ERR_OUT_OF_RANGE err;
     }
+    return uint as U8 ok;
 }
