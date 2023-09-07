@@ -585,6 +585,8 @@ class Parser:
         self.scopes[-1][name] = name
         if isinstance(p[7], TypeNil):
             p[8] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
+        elif isinstance(p[7], TypeFallible) and isinstance(p[7].ty, TypeNil):
+            p[8] += [StmtRet(line=p.lineno(1), val=ExprFallible(ty=p[7], expr=ExprNil(ty=Nil), ok=True))]
         p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=p[7], stmts=p[8])
 
     def p_begin_return_type_1(self, p):
@@ -910,6 +912,9 @@ class Parser:
         '''
         stmt : RETURN SEMI
         '''
+        ret = self.return_types[-1]
+        if isinstance(ret, TypeFallible) and isinstance(ret.ty, TypeNil):
+            p[0] = StmtRet(line=p.lineno(1), val=ExprFallible(ty=ret.ty, expr=ExprNil(ty=Nil), ok=True))
         p[0] = StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))
 
     def p_stmt_9(self, p):
@@ -1353,6 +1358,8 @@ class Parser:
         # to skip to the global scope if we are searching from a lambda scope
         if isinstance(p[6], TypeNil):
             p[7] += [StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))] # add implied return nil
+        elif isinstance(p[6], TypeFallible) and isinstance(p[6].ty, TypeNil):
+            p[7] += [StmtRet(line=p.lineno(1), val=ExprFallible(ty=p[6], expr=ExprNil(ty=Nil), ok=True))]
         p[0] = ExprFn(ty=None, args=p[4], rets=p[6], stmts=p[7])
 
     def p_init_list_1(self, p):

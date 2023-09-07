@@ -74,11 +74,9 @@ pub fn load_path(tree: &Tree, mut path: [U8], iter: &mut Iter): !Nil {
         let path_ctx = ctx as &mut PathCtx;
         let mut child: Iter;
         try let _: Nil = find_child(path_ctx.tree, &mut path_ctx.iter, split, &mut child);
-        path_ctx.iter = child; // FIXME: child is junk????
-        return nil ok;
+        path_ctx.iter = child;
     });
     *iter = path_ctx.iter;
-    return nil ok;
 }
 
 pub type Uart = {
@@ -92,7 +90,6 @@ pub fn find_uart(tree: &mut Tree, uart: &mut Uart): !Nil {
     let mut prop: Prop;
     try let _: Nil = find_prop(tree, &mut iter, "stdout-path", &mut prop);
     try let _: Nil = load_path(tree, prop.name, &mut iter);
-    return nil ok;
 }
 
 fn rewind(iter: &mut Iter) {
@@ -112,14 +109,13 @@ fn find_prop(tree: &Tree, iter: &mut Iter, name: [U8], prop: &mut Prop): !Nil {
             break;
         }
     }
-    return nil ok;
+    return ERR_NOT_FOUND err;
 }
 
 fn next_prop(tree: &Tree, iter: &mut Iter, prop: &mut Prop): !Nil {
     try let mut tok: &U32 = iter.prop else {
         return ERR_NOT_FOUND err;
     }
-
     if *tok != TOK_PROP {
         return ERR_NOT_FOUND err;
     }
@@ -139,18 +135,16 @@ fn next_prop(tree: &Tree, iter: &mut Iter, prop: &mut Prop): !Nil {
     } else {
         return ERR_MALFORMED err;
     }
-    return nil ok;
 }
 
 fn find_child(tree: &Tree, iter: &mut Iter, name: [U8], child: &mut Iter): !Nil {
     for {
-        let mut child: Iter;
-        try let _: Nil = next_child(tree, iter, &mut child);
+        try let _: Nil = next_child(tree, iter, child);
         if Ascii::compare(name, child.name) == 0 {
             break;
         }
     }
-    return nil ok;
+    return ERR_NOT_FOUND err;
 }
 
 // performs recursive inorder traversals to get to the next child
@@ -280,7 +274,6 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): !Nil {
     } else if val != TOK_END_NODE {
         return ERR_MALFORMED err;
     }
-    return nil ok;
 }
 
 type RawHeader = {

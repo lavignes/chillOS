@@ -63,7 +63,6 @@ pub fn split_ctx(str: [U8], substr: [U8], ctx: &mut U8, consumer: fn(&mut U8, [U
         i += pos + lengthof substr;
         view = &str[i] ~ lengthof str - i;
     }
-    return nil ok;
 }
 
 pub fn is_digit(val: U8): Bool {
