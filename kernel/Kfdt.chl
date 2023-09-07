@@ -181,7 +181,7 @@ fn next_child(tree: &Tree, iter: &mut Iter, child: &mut Iter): !Nil {
     // we now either have a TOK_BEGIN_NODE of a child, or the TOK_END_NODE
     if val == TOK_BEGIN_NODE {
         iter.child = tok as ?U32;
-        return nil ok;
+        return;
     }
     if val != TOK_END_NODE {
         return ERR_MALFORMED err;

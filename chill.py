@@ -914,7 +914,8 @@ class Parser:
         '''
         ret = self.return_types[-1]
         if isinstance(ret, TypeFallible) and isinstance(ret.ty, TypeNil):
-            p[0] = StmtRet(line=p.lineno(1), val=ExprFallible(ty=ret.ty, expr=ExprNil(ty=Nil), ok=True))
+            p[0] = StmtRet(line=p.lineno(1), val=ExprFallible(ty=ret, expr=ExprNil(ty=Nil), ok=True))
+            return
         p[0] = StmtRet(line=p.lineno(1), val=ExprNil(ty=Nil))
 
     def p_stmt_9(self, p):
