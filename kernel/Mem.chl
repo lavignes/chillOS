@@ -1,7 +1,7 @@
 pkg Mem;
 
-pub type FnAlloc = fn(&mut U8, UInt, &mut U8): &mut U8;
-pub type FnRealloc = fn(&mut U8, &mut U8, UInt, &mut U8): &mut U8;
+pub type FnAlloc = fn(&mut U8, UInt, &mut U8): ?mut U8;
+pub type FnRealloc = fn(&mut U8, &mut U8, UInt, &mut U8): ?mut U8;
 pub type FnDealloc = fn(&mut U8, &mut U8, &mut U8);
 
 pub type AllocTable = {

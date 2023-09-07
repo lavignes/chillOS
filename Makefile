@@ -21,8 +21,8 @@ KERNEL_C_PKG := $(KERNEL_CHL_SRC:.chl=.pkg)
 
 all: kernel.bin
 
-.PRECIOUS: $(KERNEL_C_SRC)
-.PRECIOUS: $(KERNEL_C_PKG)
+#.PRECIOUS: $(KERNEL_C_SRC)
+#.PRECIOUS: $(KERNEL_C_PKG)
 
 %.o: %.s
 	$(AS) $(AS_FLAGS) -c $< -o $@

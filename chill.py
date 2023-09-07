@@ -1610,7 +1610,16 @@ VIEW_STRUCTS: Set[str] = set()
 LAMBDA_FORWARDS: List[str] = []
 LAMBDAS: List[str] = []
 
-def mangle_type_name(ty: Union[Type, Name]) -> str:
+PUB_ARRAY_FORWARDS: Set[str] = set()
+PUB_ARRAY_STRUCTS: Set[str] = set()
+PUB_QPOINTER_FORWARDS: Set[str] = set()
+PUB_QPOINTER_STRUCTS: Set[str] = set()
+PUB_FALLIBLE_FORWARDS: Set[str] = set()
+PUB_FALLIBLE_STRUCTS: Set[str] = set()
+PUB_VIEW_FORWARDS: Set[str] = set()
+PUB_VIEW_STRUCTS: Set[str] = set()
+
+def mangle_type_name(ty: Union[Type, Name], pub: bool) -> str:
     if isinstance(ty, Name):
         return emit_name(ty)
     if isinstance(ty, TypeInteger):
@@ -1619,30 +1628,42 @@ def mangle_type_name(ty: Union[Type, Name]) -> str:
         return ty.ffi
     if isinstance(ty, TypePointer):
         if ty.mut:
-            return f'__mutptr{mangle_type_name(ty.ty)}'
-        return f'__ptr{mangle_type_name(ty.ty)}'
+            return f'__mutptr{mangle_type_name(ty.ty, pub)}'
+        return f'__ptr{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeQPointer):
-        QPOINTER_FORWARDS.add(f'struct __qptr{mangle_type_name(ty.ty)};')
-        QPOINTER_STRUCTS.add(f'struct __qptr{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __ptr; }};')
-        return f'__qptr{mangle_type_name(ty.ty)}'
+        QPOINTER_FORWARDS.add(f'struct __qptr{mangle_type_name(ty.ty, pub)};')
+        QPOINTER_STRUCTS.add(f'struct __qptr{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __ptr; }};')
+        if pub:
+            PUB_QPOINTER_FORWARDS.add(f'struct __qptr{mangle_type_name(ty.ty, pub)};')
+            PUB_QPOINTER_STRUCTS.add(f'struct __qptr{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __ptr; }};')
+        return f'__qptr{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeFallible):
-        FALLIBLE_FORWARDS.add(f'struct __fal{mangle_type_name(ty.ty)};')
-        FALLIBLE_STRUCTS.add(f'struct __fal{mangle_type_name(ty.ty)} {{ union {{ {emit_type_or_name(ty.ty)} __ok; Int __err; }} __as; UInt __var; }};')
-        return f'__fal{mangle_type_name(ty.ty)}'
+        FALLIBLE_FORWARDS.add(f'struct __fal{mangle_type_name(ty.ty, pub)};')
+        FALLIBLE_STRUCTS.add(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ {emit_type_or_name(ty.ty, pub)} __ok; Int __err; }} __as; UInt __var; }};')
+        if pub:
+            PUB_FALLIBLE_FORWARDS.add(f'struct __fal{mangle_type_name(ty.ty, pub)};')
+            PUB_FALLIBLE_STRUCTS.add(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ {emit_type_or_name(ty.ty, pub)} __ok; Int __err; }} __as; UInt __var; }};')
+        return f'__fal{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeNil):
         return ty.ffi
     if isinstance(ty, TypeArray):
-        size = emit_expr(ty.size)
+        size = emit_expr(ty.size, pub)
         # hack: strip suffix
         if isinstance(ty.size, ExprInteger) and size.endswith('U') or size.endswith('L'):
             size = size[:-1]
-        ARRAY_FORWARDS.add(f'struct __arr{size}{mangle_type_name(ty.ty)};')
-        ARRAY_STRUCTS.add(f'struct __arr{size}{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __items[{size}]; }};')
-        return f'__arr{size}{mangle_type_name(ty.ty)}'
+        ARRAY_FORWARDS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)};')
+        ARRAY_STRUCTS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items[{size}]; }};')
+        if pub:
+            PUB_ARRAY_FORWARDS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)};')
+            PUB_ARRAY_STRUCTS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items[{size}]; }};')
+        return f'__arr{size}{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeView):
-        VIEW_FORWARDS.add(f'struct __view{mangle_type_name(ty.ty)};')
-        VIEW_STRUCTS.add(f'struct __view{mangle_type_name(ty.ty)} {{ {emit_type_or_name(ty.ty)} __items; UInt __length; }};')
-        return f'__view{mangle_type_name(ty.ty)}'
+        VIEW_FORWARDS.add(f'struct __view{mangle_type_name(ty.ty, pub)};')
+        VIEW_STRUCTS.add(f'struct __view{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items; UInt __length; }};')
+        if pub:
+            PUB_VIEW_FORWARDS.add(f'struct __view{mangle_type_name(ty.ty, pub)};')
+            PUB_VIEW_STRUCTS.add(f'struct __view{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items; UInt __length; }};')
+        return f'__view{mangle_type_name(ty.ty, pub)}'
     return f'{ty}'
 
 def emit_name(name: Name) -> str:
@@ -1657,56 +1678,56 @@ def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
         return ty.ffi
     if isinstance(ty, TypePointer):
         if ty.mut:
-            return f'{emit_type_or_name(ty.ty)} *'
-        return f'{emit_type_or_name(ty.ty)} const *'
+            return f'{emit_type_or_name(ty.ty, not (apply_visibility and hide_all))} *'
+        return f'{emit_type_or_name(ty.ty, not (apply_visibility and hide_all))} const *'
     if isinstance(ty, TypeNil):
         return ty.ffi
     if isinstance(ty, TypeStruct):
         fields = []
         for (i, field) in enumerate(ty.fields):
             if apply_visibility and (hide_all or not field.pub):
-                fields += [f'{emit_type_and_name(field.ty, "__hidden" + str(i), mut=True)};']
+                fields += [f'{emit_type_and_name(field.ty, "__hidden" + str(i), mut=True, pub=True)};']
             else:
-                fields += [f'{emit_type_and_name(field.ty, field.name, mut=True)};']
+                fields += [f'{emit_type_and_name(field.ty, field.name, mut=True, pub=True)};']
         return f'{{ {"".join(fields)} }}'
     if isinstance(ty, TypeUnion):
         fields = []
         for field in ty.fields:
-            fields += [f'{emit_type_and_name(field.ty, field.name, mut=True)};']
+            fields += [f'{emit_type_and_name(field.ty, field.name, mut=True, pub=True)};']
         return f'{{ {"".join(fields)} }}'
     return f'{ty}'
 
-def emit_type_or_name(ty: Union[Type, Name]) -> str:
+def emit_type_or_name(ty: Union[Type, Name], pub: bool) -> str:
     if isinstance(ty, Type):
         if isinstance(ty, (TypeArray, TypeQPointer, TypeView, TypeFallible)):
-            return f'struct {mangle_type_name(ty)}'
+            return f'struct {mangle_type_name(ty, pub)}'
         return emit_type(ty)
     return emit_name(ty)
 
-def emit_type_and_name(ty: Union[Type, Name], name: str, mut: bool) -> str:
+def emit_type_and_name(ty: Union[Type, Name], name: str, mut: bool, pub: bool) -> str:
     if isinstance(ty, TypeFn):
         args = []
         for arg in ty.args:
-            args += [f'{emit_type_or_name(arg)}']
+            args += [f'{emit_type_or_name(arg, pub)}']
         if mut:
-            return f'{emit_type_or_name(ty.rets)}(* {name})({",".join(args)})'
-        return f'{emit_type_or_name(ty.rets)}(* const {name})({",".join(args)})'
+            return f'{emit_type_or_name(ty.rets, pub)}(* {name})({",".join(args)})'
+        return f'{emit_type_or_name(ty.rets, pub)}(* const {name})({",".join(args)})'
     if mut:
-        return f'{emit_type_or_name(ty)} {name}'
-    return f'{emit_type_or_name(ty)} const {name}'
+        return f'{emit_type_or_name(ty, pub)} {name}'
+    return f'{emit_type_or_name(ty, pub)} const {name}'
 
-def emit_expr(expr: Expr) -> str:
+def emit_expr(expr: Expr, pub: bool) -> str:
     if isinstance(expr, ExprNil):
         return '((Nil){})'
     if isinstance(expr, ExprBinOp):
-        return f'({emit_expr(expr.lhs)} {expr.op} {emit_expr(expr.rhs)})'
+        return f'({emit_expr(expr.lhs, pub)} {expr.op} {emit_expr(expr.rhs, pub)})'
     if isinstance(expr, ExprUnaryOp):
         # TODO: these cases may cause problems for unresolved names
         #if expr.op == '&mut' or expr.op == '&':
         #    return f'(({emit_type_or_name(cast(Union[Type, Name], expr.ty))}) (& {emit_expr(expr.rhs)}))'
         if expr.op == '&mut': # for now, emit one that doesn't do const verification :(
-            return f'(& {emit_expr(expr.rhs)})'
-        return f'({expr.op} {emit_expr(expr.rhs)})'
+            return f'(& {emit_expr(expr.rhs, pub)})'
+        return f'({expr.op} {emit_expr(expr.rhs, pub)})'
     if isinstance(expr, ExprName):
         return emit_name(expr.name)
     if isinstance(expr, ExprInteger):
@@ -1720,23 +1741,23 @@ def emit_expr(expr: Expr) -> str:
         return f'{expr.val}{suffix}'
     if isinstance(expr, ExprView):
         expr_type(expr)
-        return f'((struct {mangle_type_name(cast(Union[Type, Name], expr.ty))}){{ .__items = {emit_expr(expr.lhs)}, .__length = {emit_expr(expr.rhs)} }})'
+        return f'((struct {mangle_type_name(cast(Union[Type, Name], expr.ty), pub)}){{ .__items = {emit_expr(expr.lhs, pub)}, .__length = {emit_expr(expr.rhs, pub)} }})'
     if isinstance(expr, ExprFallible):
         ty = expr.ty
         expr_type(expr)
         if expr.ok:
-            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__as = {{ .__ok = {emit_expr(expr.expr)} }}, .__var = 0 }})'
-        return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__as = {{ .__err = {emit_expr(expr.expr)} }}, .__var = 1 }})'
+            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__as = {{ .__ok = {emit_expr(expr.expr, pub)} }}, .__var = 0 }})'
+        return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__as = {{ .__err = {emit_expr(expr.expr, pub)} }}, .__var = 1 }})'
     if isinstance(expr, ExprCast):
         ty = expr.ty
         if isinstance(ty, TypeQPointer):
             expr_type(expr)
-            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty))}){{ .__ptr = {emit_expr(expr.expr)} }})'
-        return f'(({emit_type_and_name(expr.ty, "", mut=False)}) {emit_expr(expr.expr)})'
+            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__ptr = {emit_expr(expr.expr, pub)} }})'
+        return f'(({emit_type_and_name(expr.ty, "", mut=False, pub=pub)}) {emit_expr(expr.expr, pub)})'
     if isinstance(expr, ExprSizeof):
-        return f'(sizeof ({emit_type_or_name(expr.rhs)}))'
+        return f'(sizeof ({emit_type_or_name(expr.rhs, pub)}))'
     if isinstance(expr, ExprLengthof):
-        return f'(({emit_expr(expr.rhs)}).__length)'
+        return f'(({emit_expr(expr.rhs, pub)}).__length)'
     if isinstance(expr, ExprBool):
         if expr.val:
             return '1'
@@ -1745,36 +1766,36 @@ def emit_expr(expr: Expr) -> str:
     if isinstance(expr, ExprCall):
         args = []
         for arg in expr.args:
-            args += [emit_expr(arg)]
-        return f'({emit_expr(expr.lhs)}({",".join(args)}))'
+            args += [emit_expr(arg, pub)]
+        return f'({emit_expr(expr.lhs, pub)}({",".join(args)}))'
     if isinstance(expr, ExprArray):
         vals = []
         for val in expr.vals:
-            vals += [emit_expr(val)]
-        return f'((struct {mangle_type_name(expr.ty)}){{ .__items = {{ {",".join(vals)} }} }})'
+            vals += [emit_expr(val, pub)]
+        return f'((struct {mangle_type_name(expr.ty, pub)}){{ .__items = {{ {",".join(vals)} }} }})'
     if isinstance(expr, ExprIndex):
-        return f'(({emit_expr(expr.lhs)}).__items[{emit_expr(expr.rhs)}])'
+        return f'(({emit_expr(expr.lhs, pub)}).__items[{emit_expr(expr.rhs, pub)}])'
     if isinstance(expr, ExprAccess):
         if isinstance(expr.lhs.ty, TypePointer): # auto deref!
-            return f'({emit_expr(expr.lhs)}->{expr.field})'
-        return f'({emit_expr(expr.lhs)}.{expr.field})'
+            return f'({emit_expr(expr.lhs, pub)}->{expr.field})'
+        return f'({emit_expr(expr.lhs, pub)}.{expr.field})'
     if isinstance(expr, ExprStruct):
         fields = []
         for field in expr.vals:
-            fields += [f'.{field[0]} = {emit_expr(field[1])}']
-        return f'(({emit_type_or_name(expr.ty)}){{ {",".join(fields)} }})'
+            fields += [f'.{field[0]} = {emit_expr(field[1], pub)}']
+        return f'(({emit_type_or_name(expr.ty, pub)}){{ {",".join(fields)} }})'
     if isinstance(expr, ExprUnion):
         fields = []
         for field in expr.vals:
-            fields += [f'.{field[0]} = {emit_expr(field[1])}']
-        return f'(({emit_type_or_name(expr.ty)}){{ {",".join(fields)} }})'
+            fields += [f'.{field[0]} = {emit_expr(field[1], pub)}']
+        return f'(({emit_type_or_name(expr.ty, pub)}){{ {",".join(fields)} }})'
     if isinstance(expr, ExprFn):
         args = []
         for arg in expr.args:
-            args += [f'{emit_type_and_name(arg.ty, arg.name, arg.mut)}']
+            args += [f'{emit_type_and_name(arg.ty, arg.name, arg.mut, pub)}']
         name = f'__lambda_{str(len(LAMBDAS))}'
-        LAMBDA_FORWARDS.append(f'static inline {emit_type_or_name(expr.rets)} {name}({",".join(args)});')
-        LAMBDAS.append(f'static inline {emit_type_or_name(expr.rets)} {name}({",".join(args)}) {{')
+        LAMBDA_FORWARDS.append(f'static inline {emit_type_or_name(expr.rets, pub)} {name}({",".join(args)});')
+        LAMBDAS.append(f'static inline {emit_type_or_name(expr.rets, pub)} {name}({",".join(args)}) {{')
         for stmt in expr.stmts:
             for line in emit_stmt(stmt, 4):
                 LAMBDAS.append(line)
@@ -1788,10 +1809,10 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     pad = ' ' * indent
     output = [pad + f'#line {stmt.line} "{filename}"']
     if isinstance(stmt, StmtRet):
-        output += [pad + f'return {emit_expr(stmt.val)};']
+        output += [pad + f'return {emit_expr(stmt.val, False)};']
         return output
     if isinstance(stmt, StmtIf):
-        output += [pad + f'if ({emit_expr(stmt.expr)}) {{']
+        output += [pad + f'if ({emit_expr(stmt.expr, False)}) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
@@ -1816,11 +1837,11 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         val = cast(Expr, stmt.taken.val)
         fal = f'__fal{COUNTER}'
         if isinstance(stmt.taken.ty, TypePointer):
-            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = {emit_expr(val)}.__ptr;']
+            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut, False)} = {emit_expr(val, False)}.__ptr;']
             output += [pad + f'if ({stmt.taken.name} != 0) {{']
         else:
-            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), fal, mut=False)} = {emit_expr(val)};']
-            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut)} = {fal}.__as.__ok;']
+            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), fal, mut=False, pub=False)} = {emit_expr(val, False)};']
+            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut, False)} = {fal}.__as.__ok;']
             output += [pad + f'if ({fal}.__var == 0) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
@@ -1828,7 +1849,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         if len(stmt.else_stmts) > 0:
             output += [pad + 'else {']
             if stmt.not_taken is not None:
-                output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut)} = {fal}.__as.__err;']
+                output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut, False)} = {fal}.__as.__err;']
             for s in stmt.else_stmts:
                 output += emit_stmt(s, indent + 4)
             output += [pad + '}']
@@ -1840,16 +1861,16 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         val = cast(Expr, stmt.bind.val)
         fal = f'__fal{COUNTER}'
         if isinstance(stmt.bind.ty, TypePointer):
-            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(val)}.__ptr;']
+            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(val, False)}.__ptr;']
             output += [pad + f'if ({stmt.bind.name} == 0) {{']
             if stmt.else_bind is not None:
-                output += [pad + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut)} = {stmt.bind.name};']
+                output += [pad + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut, False)} = {stmt.bind.name};']
         else:
-            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False)} = {emit_expr(val)};']
-            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {fal}.__as.__ok;']
+            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False, pub=False)} = {emit_expr(val, False)};']
+            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {fal}.__as.__ok;']
             output += [pad + f'if ({fal}.__var == 1) {{']
             if stmt.else_bind is not None:
-                output += [pad + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut)} = {fal}.__as.__err;']
+                output += [pad + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut, False)} = {fal}.__as.__err;']
         if len(stmt.else_stmts) > 0:
             for s in stmt.else_stmts:
                 output += emit_stmt(s, indent + 4)
@@ -1857,7 +1878,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             if isinstance(stmt.bind.ty, TypePointer):
                 output += [pad + f'    return {stmt.bind.name};']
             else:
-                output += [pad + f'    return ((struct {mangle_type_name(stmt.func_return_type)}){{ .__as = {{ .__err = {fal}.__as.__err }}, .__var = 1 }});']
+                output += [pad + f'    return ((struct {mangle_type_name(stmt.func_return_type, False)}){{ .__as = {{ .__err = {fal}.__as.__err }}, .__var = 1 }});']
         output += [pad + '}']
         return output
     if isinstance(stmt, StmtBreak):
@@ -1874,16 +1895,16 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         return output;
     if isinstance(stmt, StmtBind):
         if stmt.val is not None:
-            output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut)} = {emit_expr(stmt.val)};']
+            output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut, False)} = {emit_expr(stmt.val, False)};']
         else:
-            output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut)};']
+            output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut, False)};']
         return output
     if isinstance(stmt, StmtAssign):
-        output += [pad + f'{emit_expr(stmt.lhs)} {stmt.op} {emit_expr(stmt.rhs)};']
+        output += [pad + f'{emit_expr(stmt.lhs, False)} {stmt.op} {emit_expr(stmt.rhs, False)};']
         return output
     if isinstance(stmt, StmtFor):
         if stmt.expr is not None:
-            output += [pad + f'while ({emit_expr(stmt.expr)}) {{']
+            output += [pad + f'while ({emit_expr(stmt.expr, False)}) {{']
         else:
             output += [pad + 'while (1) {']
         for s in stmt.stmts:
@@ -1897,8 +1918,8 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     if isinstance(stmt, StmtForLet):
         output += [pad + '{']
         output += [pad + f'while (1) {{']
-        output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut)} = {emit_expr(cast(Expr, stmt.bind.val))}.__ptr;']
-        output += [pad + f'if ({stmt.bind.name} == 0) {{ break; }}']
+        output += [pad + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(cast(Expr, stmt.bind.val), False)}.__ptr;']
+        output += [pad + f'    if ({stmt.bind.name} == 0) {{ break; }}']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         if stmt.label is not None:
@@ -1909,7 +1930,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         output += [pad + '}']
         return output
     if isinstance(stmt, StmtCall):
-        output += [pad + f'{emit_expr(stmt.expr)};']
+        output += [pad + f'{emit_expr(stmt.expr, False)};']
         return output
     output += [f'{stmt}']
     return output
@@ -1929,14 +1950,14 @@ for item in pkg.items:
     if isinstance(item, PkgFn):
         args = []
         for arg in item.args:
-            args += [f'{emit_type_and_name(arg.ty, arg.name, arg.mut)}']
+            args += [f'{emit_type_and_name(arg.ty, arg.name, arg.mut, item.pub)}']
         if item.pub:
-            forward_fns += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
-            pub_forward_fns += [f'extern {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
-            output += [f'{emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
+            forward_fns += [f'{emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
+            pub_forward_fns += [f'extern {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
+            output += [f'{emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)}) {{']
         else:
-            forward_fns += [f'static {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)});']
-            output += [f'static {emit_type_or_name(item.rets)} {emit_name(item.name)}({",".join(args)}) {{']
+            forward_fns += [f'static {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
+            output += [f'static {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)}) {{']
         for stmt in item.stmts:
             output += emit_stmt(stmt, 4)
         output += ['}']
@@ -1960,21 +1981,21 @@ for item in pkg.items:
             pub_typedefs += [f'typedef union {emit_name(item.name)} {emit_name(item.name)};']
             pub_structs += [f'union {emit_name(item.name)} {emit_type(cast(Type, item.ty), apply_visibility=True, hide_all=not item.pub)};']
         elif isinstance(item.ty, TypeFn):
-            typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True)};']
+            typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True, item.pub)};']
             if item.pub:
-                pub_typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True)};']
+                pub_typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True, item.pub)};']
         else:
-            typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True)};']
+            typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True, item.pub)};']
             if item.pub:
-                pub_typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True)};']
+                pub_typedefs += [f'typedef {emit_type_and_name(item.ty, emit_name(item.name), True, item.pub)};']
         continue
     if isinstance(item, PkgBind):
         if item.pub:
             if item.mut or item.val is None:
-                forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
-                pub_forward_fns += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+                forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)};']
+                pub_forward_fns += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)};']
                 if item.val is not None:
-                    output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+                    output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)} = {emit_expr(item.val, item.pub)};']
             # TODO: maybe should make dedicated pub const syntax.
             # This is me attempting to optimize the output of shared constants.
             # another approach I tried was exporting statics, but they create cycles.
@@ -1999,13 +2020,13 @@ for item in pkg.items:
                 #forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
                 #output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
             else: # this always "works" but prevents constants from referring to other constants
-                forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
-                pub_forward_fns += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
-                output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+                forward_fns += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)};']
+                pub_forward_fns += [f'extern {emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)};']
+                output += [f'{emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)} = {emit_expr(item.val, item.pub)};']
         else:
-            forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)};']
+            forward_fns += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)};']
             if item.val is not None:
-                output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut)} = {emit_expr(item.val)};']
+                output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)} = {emit_expr(item.val, item.pub)};']
         continue
     if isinstance(item, PkgUse) and not make_pkg:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
@@ -2085,16 +2106,16 @@ if not make_pkg:
 
 if make_pkg:
     pkg = {
-        'forward_qptrs': list(QPOINTER_FORWARDS),
-        'forward_views': list(VIEW_FORWARDS),
-        'forward_fallible': list(FALLIBLE_FORWARDS),
-        'forward_arrays': list(ARRAY_FORWARDS),
+        'forward_qptrs': list(PUB_QPOINTER_FORWARDS),
+        'forward_views': list(PUB_VIEW_FORWARDS),
+        'forward_fallible': list(PUB_FALLIBLE_FORWARDS),
+        'forward_arrays': list(PUB_ARRAY_FORWARDS),
         'forward_structs': pub_forward_structs,
         'typedefs': pub_typedefs,
-        'qptr_structs': list(QPOINTER_STRUCTS),
-        'view_structs': list(VIEW_STRUCTS),
-        'fallible_structs': list(FALLIBLE_STRUCTS),
-        'array_structs': list(ARRAY_STRUCTS),
+        'qptr_structs': list(PUB_QPOINTER_STRUCTS),
+        'view_structs': list(PUB_VIEW_STRUCTS),
+        'fallible_structs': list(PUB_FALLIBLE_STRUCTS),
+        'array_structs': list(PUB_ARRAY_STRUCTS),
         'structs': pub_structs,
         'forward_fns': pub_forward_fns
     }
