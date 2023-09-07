@@ -149,13 +149,9 @@ fn next_prop(tree: &Tree, iter: &mut Iter, prop: &mut Prop): Int {
             return e;
         }
 
-        // string is bound outside the block. e is bound inside
-        try let string: [U8] = get_string(tree, U32::endian_swap(*tok)) {
-            return e; // try statements *must* return on err
-        }
-
-        try prop.name = get_string(tree, U32::endian_swap(*tok)) {
-            
+        // lets are bound outside the block. e is bound inside
+        try prop.name = get_string(tree, U32::endian_swap(*tok)) else e {
+            return e;
         }
 
         tok += 1; // consume name offset

@@ -215,6 +215,7 @@ class Lexer:
             'lengthof': 'LENGTHOF',
             'err': 'ERR',
             'ok': 'OK',
+            'try': 'TRY',
     }
 
     tokens = list(reserved.values()) + ['ID', 'INTEGER', 'BOOL', 'BRACE_OPEN', 'BRACE_CLOSE',
@@ -384,7 +385,7 @@ class Parser:
     tokens = Lexer.tokens
 
     def __init__(self):
-        self.inner = yacc.yacc(module=self, write_tables=False, debug=False)
+        self.inner = yacc.yacc(module=self, write_tables=False, debug=True)
         self.scopes = [dict()]
         self.aliases = dict() # use foo as bar;
         self.return_types = []
@@ -940,7 +941,8 @@ class Parser:
              | if_let_stmt
              | for_stmt
              | for_let_stmt
-             | expr_stmt
+             | expr_stmt SEMI
+             | try_stmt
         '''
         p[0] = p[1]
 
@@ -959,23 +961,23 @@ class Parser:
 
     def p_expr_stmt_1(self, p):
         '''
-        expr_stmt : expr EQUAL expr SEMI
-                  | expr PLUS_EQUAL expr SEMI
-                  | expr MINUS_EQUAL expr SEMI
-                  | expr STAR_EQUAL expr SEMI
-                  | expr SOLIDUS_EQUAL expr SEMI
-                  | expr MODULUS_EQUAL expr SEMI
-                  | expr SHIFT_LEFT_EQUAL expr SEMI
-                  | expr SHIFT_RIGHT_EQUAL expr SEMI
-                  | expr AND_EQUAL expr SEMI
-                  | expr CARET_EQUAL expr SEMI
-                  | expr PIPE_EQUAL expr SEMI
+        expr_stmt : expr EQUAL expr
+                  | expr PLUS_EQUAL expr
+                  | expr MINUS_EQUAL expr
+                  | expr STAR_EQUAL expr
+                  | expr SOLIDUS_EQUAL expr
+                  | expr MODULUS_EQUAL expr
+                  | expr SHIFT_LEFT_EQUAL expr
+                  | expr SHIFT_RIGHT_EQUAL expr
+                  | expr AND_EQUAL expr
+                  | expr CARET_EQUAL expr
+                  | expr PIPE_EQUAL expr
         '''
         p[0] = StmtAssign(line=p.lineno(2), lhs=p[1], op=p[2], rhs=p[3])
 
     def p_expr_stmt_2(self, p):
         '''
-        expr_stmt : expr PAREN_OPEN expr_list PAREN_CLOSE SEMI
+        expr_stmt : expr PAREN_OPEN expr_list PAREN_CLOSE
         '''
         expr = ExprCall(ty=None, lhs=p[1], args=p[3])
         p[0] = StmtCall(line=p.lineno(2), expr=expr)
@@ -990,7 +992,7 @@ class Parser:
         '''
         for_stmt : FOR DOUBLE_COLON ID stmt_block
         '''
-        self.scopes[-1][Name('*', p[3])] = p[4]
+        self.scopes[-1][Name('*', p[3])] = p[4] # ID should be in inner scope
         p[0] = StmtFor(line=p.lineno(1), expr=None, stmts=p[4], label=p[3])
 
     def p_for_stmt_3(self, p):
@@ -1003,7 +1005,7 @@ class Parser:
         '''
         for_stmt : FOR DOUBLE_COLON ID expr stmt_block
         '''
-        self.scopes[-1][Name('*', p[3])] = p[3]
+        self.scopes[-1][Name('*', p[3])] = p[3] # should be in inner scope
         p[0] = StmtFor(line=p.lineno(1), expr=p[4], stmts=p[5], label=p[3])
 
     def p_for_let_stmt_1(self, p):
@@ -1016,7 +1018,7 @@ class Parser:
         '''
         for_stmt : FOR DOUBLE_COLON ID LET if_let_bind stmt_block end_scope
         '''
-        self.scopes[-1][Name('*', p[3])] = p[3]
+        self.scopes[-1][Name('*', p[3])] = p[3] # should be in inner scope
         p[0] = StmtForLet(line=p.lineno(1), bind=p[5], stmts=p[6], label=p[3])
 
     def p_if_stmt_1(self, p):
@@ -1041,21 +1043,21 @@ class Parser:
         '''
         if_stmt : IF DOUBLE_COLON ID expr stmt_block
         '''
-        self.scopes[-1][Name('*', p[3])] = p[3]
+        self.scopes[-1][Name('*', p[3])] = p[3] # should be in inner scope
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[], label=p[3])
 
     def p_if_stmt_5(self, p):
         '''
         if_stmt : IF DOUBLE_COLON ID expr stmt_block ELSE stmt_block
         '''
-        self.scopes[-1][Name('*', p[3])] = p[3]
+        self.scopes[-1][Name('*', p[3])] = p[3] # should be in inner scope
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=p[7], label=p[3])
 
     def p_if_stmt_6(self, p):
         '''
         if_stmt : IF DOUBLE_COLON ID expr stmt_block ELSE if_stmt
         '''
-        self.scopes[-1][Name('*', p[3])] = p[3]
+        self.scopes[-1][Name('*', p[3])] = p[3] # should be in inner scope
         p[0] = StmtIf(line=p.lineno(1), expr=p[4], stmts=p[5], else_stmts=[p[7]], label=p[3])
 
     def p_if_let_stmt_1(self, p):
@@ -1072,7 +1074,7 @@ class Parser:
 
     def p_if_let_stmt_2_1(self, p):
         '''
-        if_let_stmt : IF LET if_let_bind stmt_block end_scope ELSE else_let_bind stmt_block
+        if_let_stmt : IF LET if_let_bind stmt_block end_scope ELSE else_let_bind stmt_block end_scope
         '''
         p[0] = StmtIfLet(line=p.lineno(1), taken=p[3], stmts=p[4], not_taken=p[7], else_stmts=p[8], label=None)
 
@@ -1080,8 +1082,42 @@ class Parser:
         '''
         if_let_stmt : IF DOUBLE_COLON ID LET if_let_bind stmt_block end_scope
         '''
-        self.scopes[-1][Name('*', p[3])] = p[3]
+        self.scopes[-1][Name('*', p[3])] = p[3] # should be in inner scope
         p[0] = StmtIfLet(line=p.lineno(1), taken=p[5], stmts=p[6], not_taken=None, else_stmts=[], label=p[3])
+
+    def p_try_let_stmt_1(self, p):
+        '''
+        try_stmt : TRY LET ID COLON type EQUAL expr try_else
+        '''
+        self.scopes[-1][Name('*', p[3])] = p[3]
+        bind = StmtBind(line=p.lineno(1), name=p[3], ty=p[5], val=p[7], mut=False)
+        p[0] = StmtTryLet(line=p.lineno(1), bind=bind, else_bind=p[8][0], else_stmts=p[8][1])
+
+    def p_try_let_stmt_2(self, p):
+        '''
+        try_stmt : TRY LET MUT ID COLON type EQUAL expr try_else
+        '''
+        self.scopes[-1][Name('*', p[4])] = p[4]
+        bind = StmtBind(line=p.lineno(1), name=p[4], ty=p[6], val=p[8], mut=True)
+        p[0] = StmtTryLet(line=p.lineno(1), bind=bind, else_bind=p[9][0], else_stmts=p[9][1])
+
+    def p_try_assign_stmt(self, p):
+        '''
+        try_stmt : TRY expr_stmt try_else
+        '''
+        p[0] = StmtTryAssign(line=p.lineno(1), stmt=p[2], else_bind=p[3][0], else_stmts=p[3][1])
+
+    def p_try_else_1(self, p):
+        '''
+        try_else : SEMI
+        '''
+        p[0] = (None, [])
+
+    def p_try_else_2(self, p):
+        '''
+        try_else : ELSE else_let_bind stmt_block end_scope
+        '''
+        p[0] = (p[2], p[3])
 
     def p_if_let_bind_1(self, p):
         '''
@@ -1420,6 +1456,18 @@ class StmtIfLet(Stmt):
     not_taken: Optional[StmtBind]
     else_stmts: Sequence[Stmt]
     label: Optional[str]
+
+@dataclass
+class StmtTryLet(Stmt):
+    bind: StmtBind
+    else_bind: StmtBind
+    else_stmts: Sequence[Stmt]
+
+@dataclass
+class StmtTryAssign(Stmt):
+    stmt: StmtAssign
+    else_bind: StmtBind
+    else_stmts: Sequence[Stmt]
 
 @dataclass
 class StmtFor(Stmt):
