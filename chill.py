@@ -228,7 +228,7 @@ class Lexer:
             'DOT', 'DOUBLE_COLON', 'COMMA', 'STRING', 'SHIFT_LEFT', 'SHIFT_RIGHT', 'AND', 'OR',
             'NOT_EQUAL', 'PLUS_EQUAL', 'MINUS_EQUAL', 'STAR_EQUAL', 'SOLIDUS_EQUAL',
             'MODULUS_EQUAL', 'SHIFT_LEFT_EQUAL', 'SHIFT_RIGHT_EQUAL', 'AND_EQUAL', 'CARET_EQUAL',
-            'PIPE_EQUAL', 'QUESTION', 'TILDE']
+            'PIPE_EQUAL', 'QUESTION', 'TILDE', 'HASH']
 
     t_BRACE_OPEN = r'{'
     t_BRACE_CLOSE = r'}'
@@ -273,6 +273,7 @@ class Lexer:
     t_PIPE_EQUAL = r'\|='
     t_QUESTION = r'\?'
     t_TILDE = r'~'
+    t_HASH = r'\#'
 
     t_ignore = ' \r\t'
 
@@ -421,9 +422,9 @@ class Parser:
 
     def p_pkg(self, p):
         '''
-        pkg : PKG ID set_pkg_name SEMI pkg_items
+        pkg : attrs PKG ID set_pkg_name SEMI pkg_items
         '''
-        p[0] = Pkg(p[5])
+        p[0] = Pkg(p[6], p[1])
 
     def p_set_pkg_name(self, p):
         '''
@@ -466,19 +467,25 @@ class Parser:
 
     def p_attrs_2(self, p):
         '''
-        attrs : BRACKET_OPEN ID id_list BRACKET_CLOSE
+        attrs : attrs attr
         '''
-        p[0] = [p[2]] + p[3]
+        p[0] = p[1] + [p[2]]
 
-    def p_id_list_1(self, p):
+    def p_attr(self, p):
         '''
-        id_list : empty
+        attr : HASH BRACKET_OPEN ID string_list BRACKET_CLOSE
+        '''
+        p[0] = Attr([p[3]] + p[4])
+
+    def p_string_list_1(self, p):
+        '''
+        string_list : empty
         '''
         p[0] = []
 
     def p_id_list_2(self, p):
         '''
-        id_list : id_list ID
+        string_list : string_list STRING
         '''
         p[0] = p[1] + [p[2]]
 
@@ -1382,13 +1389,18 @@ class Parser:
         p[0] = [(p[1], p[3])] + p[5]
 
 @dataclass
+class Attr:
+    items: Sequence[str]
+
+@dataclass
 class Pkg:
     items: Sequence['PkgItem']
+    attrs: Sequence[Attr]
 
 @dataclass
 class PkgItem(ABC):
     line: int
-    attrs: Sequence[str]
+    attrs: Sequence[Attr]
 
 @dataclass
 class PkgUse(PkgItem):
@@ -2030,22 +2042,42 @@ for item in pkg.items:
         continue
     if isinstance(item, PkgUse) and not make_pkg:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
-            pkg = json.load(fp=f)
-            QPOINTER_FORWARDS.update(pkg['forward_qptrs'])
-            VIEW_FORWARDS.update(pkg['forward_views'])
-            FALLIBLE_FORWARDS.update(pkg['forward_fallible'])
-            ARRAY_FORWARDS.update(pkg['forward_arrays'])
-            QPOINTER_STRUCTS.update(pkg['qptr_structs'])
-            VIEW_STRUCTS.update(pkg['view_structs'])
-            FALLIBLE_STRUCTS.update(pkg['fallible_structs'])
-            ARRAY_STRUCTS.update(pkg['array_structs'])
-            forward_structs += pkg['forward_structs']
-            typedefs += pkg['typedefs']
-            structs += pkg['structs']
-            forward_fns += pkg['forward_fns']
+            pkgfile = json.load(fp=f)
+            QPOINTER_FORWARDS.update(pkgfile['forward_qptrs'])
+            VIEW_FORWARDS.update(pkgfile['forward_views'])
+            FALLIBLE_FORWARDS.update(pkgfile['forward_fallible'])
+            ARRAY_FORWARDS.update(pkgfile['forward_arrays'])
+            QPOINTER_STRUCTS.update(pkgfile['qptr_structs'])
+            VIEW_STRUCTS.update(pkgfile['view_structs'])
+            FALLIBLE_STRUCTS.update(pkgfile['fallible_structs'])
+            ARRAY_STRUCTS.update(pkgfile['array_structs'])
+            forward_structs += pkgfile['forward_structs']
+            typedefs += pkgfile['typedefs']
+            structs += pkgfile['structs']
+            forward_fns += pkgfile['forward_fns']
         continue
 
 if not make_pkg:
+    # because the compiler is naive right now we sometimes need to resolve
+    # declarations of structs in a particular order. We do with via HACK attributes
+    final_structs = list(ARRAY_STRUCTS) + list(QPOINTER_STRUCTS) + list(VIEW_STRUCTS) + list(FALLIBLE_STRUCTS) + structs
+
+    for attr in pkg.attrs:
+        if attr.items[0] == 'HACK_reorder':
+            above = attr.items[1]
+            below = attr.items[2]
+            removed: Optional[Tuple[int, str]] = None
+            for (i, struct) in enumerate(final_structs):
+                if struct.startswith(above):
+                    removed = (i, final_structs.pop(i))
+                    break
+            assert removed is not None # not found
+            for (i, struct) in enumerate(final_structs):
+                if struct.startswith(below):
+                    assert removed[0] > i # already above
+                    final_structs.insert(i, removed[1])
+                    break
+
     with open(os.path.splitext(filename)[0] + '.c', 'w') as f:
         print('typedef struct{} Nil;', file=f)
         print('typedef unsigned char U8;', file=f)
@@ -2074,22 +2106,10 @@ if not make_pkg:
         for line in FALLIBLE_FORWARDS:
             print(line, file=f)
 
-        for line in ARRAY_STRUCTS:
-            print(line, file=f)
-
-        for line in QPOINTER_STRUCTS:
-            print(line, file=f)
-
-        for line in VIEW_STRUCTS:
-            print(line, file=f)
-
-        for line in FALLIBLE_STRUCTS:
-            print(line, file=f)
-
         for line in typedefs:
             print(line, file=f)
 
-        for line in structs:
+        for line in final_structs:
             print(line, file=f)
 
         for line in LAMBDA_FORWARDS:
@@ -2105,7 +2125,7 @@ if not make_pkg:
             print(line, file=f)
 
 if make_pkg:
-    pkg = {
+    pkgfile = {
         'forward_qptrs': list(PUB_QPOINTER_FORWARDS),
         'forward_views': list(PUB_VIEW_FORWARDS),
         'forward_fallible': list(PUB_FALLIBLE_FORWARDS),
@@ -2120,4 +2140,4 @@ if make_pkg:
         'forward_fns': pub_forward_fns
     }
     with open(os.path.splitext(filename)[0] + '.pkg', 'w') as f:
-        json.dump(pkg, fp=f)
+        json.dump(pkgfile, fp=f)

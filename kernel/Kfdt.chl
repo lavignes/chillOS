@@ -1,6 +1,7 @@
 // methods of reading Flattended Device Tree (FDT) or DeviceTree Blob (DTB)
 // data fed in from the bootloader.
 // see https://devicetree-specification.readthedocs.io
+#[HACK_reorder "struct _ZN4Kfdt4PropE" "struct __fal_ZN4Kfdt4PropE"]
 pkg Kfdt;
 
 use U8;
@@ -87,8 +88,7 @@ pub fn find_uart(tree: &mut Tree, uart: &mut Uart): !Nil {
     // for now, we'll assume a "/chosen" uart is defined
     let mut iter: Iter;
     try let _: Nil = load_path(tree, "/chosen", &mut iter);
-    let mut prop: Prop;
-    try let _: Nil = find_prop(tree, &mut iter, "stdout-path", &mut prop);
+    try let prop: Prop = find_prop(tree, &mut iter, "stdout-path");
     try let _: Nil = load_path(tree, prop.name, &mut iter);
 }
 
@@ -102,17 +102,17 @@ type Prop = {
     data: [U8],
 };
 
-fn find_prop(tree: &Tree, iter: &mut Iter, name: [U8], prop: &mut Prop): !Nil {
+fn find_prop(tree: &Tree, iter: &mut Iter, name: [U8]): !Prop {
     for {
-        try let _: Nil = next_prop(tree, iter, prop);
+        try let prop: Prop = next_prop(tree, iter);
         if Ascii::compare(name, prop.name) == 0 {
-            break;
+            return prop ok;
         }
     }
     return ERR_NOT_FOUND err;
 }
 
-fn next_prop(tree: &Tree, iter: &mut Iter, prop: &mut Prop): !Nil {
+fn next_prop(tree: &Tree, iter: &mut Iter): !Prop {
     try let mut tok: &U32 = iter.prop else {
         return ERR_NOT_FOUND err;
     }
@@ -124,6 +124,7 @@ fn next_prop(tree: &Tree, iter: &mut Iter, prop: &mut Prop): !Nil {
     let data_len = U32::endian_swap(*tok) as UInt;
     tok += 1; // consume data size
     try let string: [U8] = get_string(tree, U32::endian_swap(*tok));
+    let mut prop: Prop;
     prop.name = string;
 
     tok += 1; // consume name offset
@@ -135,6 +136,8 @@ fn next_prop(tree: &Tree, iter: &mut Iter, prop: &mut Prop): !Nil {
     } else {
         return ERR_MALFORMED err;
     }
+
+    return prop ok;
 }
 
 fn find_child(tree: &Tree, iter: &mut Iter, name: [U8], child: &mut Iter): !Nil {
