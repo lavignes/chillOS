@@ -45,7 +45,7 @@ class TypeArray(Type):
     size: 'Expr'
 
 @dataclass(frozen=True)
-class TypeView(Type):
+class TypeSlice(Type):
     ty: TypePointer
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
         if isinstance(lhs, TypeArray):
             expr.ty = lhs.ty
             return lhs.ty
-        if isinstance(lhs, TypeView):
+        if isinstance(lhs, TypeSlice):
             expr.ty = lhs.ty.ty
             return lhs.ty.ty
         raise SyntaxError(f'illegal index: {lhs}[{expr.ty}]')
@@ -136,12 +136,12 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
             expr.ty = lhs
             return lhs
         raise SyntaxError(f'illegal operation: {lhs} {expr.op} {rhs}')
-    if isinstance(expr, ExprView):
+    if isinstance(expr, ExprSlice):
         lhs = expr_type(expr.lhs)
         if not isinstance(lhs, TypePointer):
             return None
-        expr.ty = TypeView(lhs)
-        return TypeView(lhs)
+        expr.ty = TypeSlice(lhs)
+        return TypeSlice(lhs)
     if isinstance(expr, ExprUnaryOp):
         rhs = expr_type(expr.rhs)
         if not isinstance(rhs, Type):
@@ -708,13 +708,13 @@ class Parser:
         '''
         type : BRACKET_OPEN type BRACKET_CLOSE
         '''
-        p[0] = TypeView(TypePointer(p[2], mut=False))
+        p[0] = TypeSlice(TypePointer(p[2], mut=False))
 
     def p_type_6(self, p):
         '''
         type : BRACKET_OPEN MUT type BRACKET_CLOSE
         '''
-        p[0] = TypeView(TypePointer(p[3], mut=True))
+        p[0] = TypeSlice(TypePointer(p[3], mut=True))
 
     def p_type_7(self, p):
         '''
@@ -1199,7 +1199,7 @@ class Parser:
         '''
         view_expr : expr TILDE expr
         '''
-        p[0] = ExprView(ty=None, lhs=p[1], rhs=p[3])
+        p[0] = ExprSlice(ty=None, lhs=p[1], rhs=p[3])
 
     def p_field_expr(self, p):
         '''
@@ -1355,7 +1355,7 @@ class Parser:
         size = ExprInteger(ty=UInt, val=len(vals))
         lhs = ExprIndex(ty=U8, lhs=ExprArray(ty=TypeArray(ty=U8, size=size), vals=vals), rhs=ExprInteger(ty=UInt, val=0))
         ty = TypePointer(ty=U8, mut=False)
-        p[0] = ExprView(ty=TypeView(ty), lhs=ExprUnaryOp(ty=ty, op='&', rhs=lhs), rhs=size)
+        p[0] = ExprSlice(ty=TypeSlice(ty), lhs=ExprUnaryOp(ty=ty, op='&', rhs=lhs), rhs=size)
 
     def p_primary_expr_7(self, p):
         '''
@@ -1551,7 +1551,7 @@ class ExprIndex(Expr):
     rhs: Expr
 
 @dataclass
-class ExprView(Expr):
+class ExprSlice(Expr):
     lhs: Expr
     rhs: Expr
 
@@ -1669,7 +1669,7 @@ def mangle_type_name(ty: Union[Type, Name], pub: bool) -> str:
             PUB_ARRAY_FORWARDS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)};')
             PUB_ARRAY_STRUCTS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items[{size}]; }};')
         return f'__arr{size}{mangle_type_name(ty.ty, pub)}'
-    if isinstance(ty, TypeView):
+    if isinstance(ty, TypeSlice):
         VIEW_FORWARDS.add(f'struct __view{mangle_type_name(ty.ty, pub)};')
         VIEW_STRUCTS.add(f'struct __view{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items; UInt __length; }};')
         if pub:
@@ -1711,7 +1711,7 @@ def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
 
 def emit_type_or_name(ty: Union[Type, Name], pub: bool) -> str:
     if isinstance(ty, Type):
-        if isinstance(ty, (TypeArray, TypeQPointer, TypeView, TypeFallible)):
+        if isinstance(ty, (TypeArray, TypeQPointer, TypeSlice, TypeFallible)):
             return f'struct {mangle_type_name(ty, pub)}'
         return emit_type(ty)
     return emit_name(ty)
@@ -1751,7 +1751,7 @@ def emit_expr(expr: Expr, pub: bool) -> str:
             if ty.ffi == 'I64' or ty.ffi == 'Int':
                 suffix = 'L'
         return f'{expr.val}{suffix}'
-    if isinstance(expr, ExprView):
+    if isinstance(expr, ExprSlice):
         expr_type(expr)
         return f'((struct {mangle_type_name(cast(Union[Type, Name], expr.ty), pub)}){{ .__items = {emit_expr(expr.lhs, pub)}, .__length = {emit_expr(expr.rhs, pub)} }})'
     if isinstance(expr, ExprFallible):
@@ -1819,12 +1819,13 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     global COUNTER
     COUNTER += 1
     pad = ' ' * indent
-    output = [pad + f'#line {stmt.line} "{filename}"']
+    prefix = pad + f'#line {stmt.line} "{filename}"\n' + pad
+    output = ['']
     if isinstance(stmt, StmtRet):
-        output += [pad + f'return {emit_expr(stmt.val, False)};']
+        output += [prefix + f'return {emit_expr(stmt.val, False)};']
         return output
     if isinstance(stmt, StmtIf):
-        output += [pad + f'if ({emit_expr(stmt.expr, False)}) {{']
+        output += [prefix + f'if ({emit_expr(stmt.expr, False)}) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
@@ -1834,125 +1835,125 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
                 output += emit_stmt(s, indent + 4)
             output += [pad + '}']
         if stmt.label is not None:
-            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+            output += [prefix + f'__label_break_{stmt.label}: (void)0;']
         return output
     if isinstance(stmt, StmtBlock):
-        output += [pad + '{']
+        output += [prefix + '{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
         if stmt.label is not None:
-            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+            output += [prefix + f'__label_break_{stmt.label}: (void)0;']
         return output
     if isinstance(stmt, StmtIfLet):
-        output += [pad + '{']
+        output += [prefix + '{']
         val = cast(Expr, stmt.taken.val)
         fal = f'__fal{COUNTER}'
         if isinstance(stmt.taken.ty, TypePointer):
-            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut, False)} = {emit_expr(val, False)}.__ptr;']
-            output += [pad + f'if ({stmt.taken.name} != 0) {{']
+            output += [prefix + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut, False)} = {emit_expr(val, False)}.__ptr;']
+            output += [prefix + f'if ({stmt.taken.name} != 0) {{']
         else:
-            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), fal, mut=False, pub=False)} = {emit_expr(val, False)};']
-            output += [pad + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut, False)} = {fal}.__as.__ok;']
-            output += [pad + f'if ({fal}.__var == 0) {{']
+            output += [prefix + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), fal, mut=False, pub=False)} = {emit_expr(val, False)};']
+            output += [prefix + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut, False)} = {fal}.__as.__ok;']
+            output += [prefix + f'if ({fal}.__var == 0) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
         if len(stmt.else_stmts) > 0:
             output += [pad + 'else {']
             if stmt.not_taken is not None:
-                output += [pad + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut, False)} = {fal}.__as.__err;']
+                output += [prefix + f'    {emit_type_and_name(stmt.not_taken.ty, stmt.not_taken.name, stmt.not_taken.mut, False)} = {fal}.__as.__err;']
             for s in stmt.else_stmts:
                 output += emit_stmt(s, indent + 4)
             output += [pad + '}']
         if stmt.label is not None:
-            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+            output += [prefix + f'__label_break_{stmt.label}: (void)0;']
         output += [pad + '}']
         return output
     if isinstance(stmt, StmtTryLet):
         val = cast(Expr, stmt.bind.val)
         fal = f'__fal{COUNTER}'
         if isinstance(stmt.bind.ty, TypePointer):
-            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(val, False)}.__ptr;']
-            output += [pad + f'if ({stmt.bind.name} == 0) {{']
+            output += [prefix + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(val, False)}.__ptr;']
+            output += [prefix + f'if ({stmt.bind.name} == 0) {{']
             if stmt.else_bind is not None:
-                output += [pad + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut, False)} = {stmt.bind.name};']
+                output += [prefix + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut, False)} = {stmt.bind.name};']
         else:
-            output += [pad + f'{emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False, pub=False)} = {emit_expr(val, False)};']
-            output += [pad + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {fal}.__as.__ok;']
-            output += [pad + f'if ({fal}.__var == 1) {{']
+            output += [prefix + f'{emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False, pub=False)} = {emit_expr(val, False)};']
+            output += [prefix + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {fal}.__as.__ok;']
+            output += [prefix + f'if ({fal}.__var == 1) {{']
             if stmt.else_bind is not None:
-                output += [pad + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut, False)} = {fal}.__as.__err;']
+                output += [prefix + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut, False)} = {fal}.__as.__err;']
         if len(stmt.else_stmts) > 0:
             for s in stmt.else_stmts:
                 output += emit_stmt(s, indent + 4)
         else:
             if isinstance(stmt.bind.ty, TypePointer):
-                output += [pad + f'    return {stmt.bind.name};']
+                output += [prefix + f'    return {stmt.bind.name};']
             else:
-                output += [pad + f'    return ((struct {mangle_type_name(stmt.func_return_type, False)}){{ .__as = {{ .__err = {fal}.__as.__err }}, .__var = 1 }});']
+                output += [prefix + f'    return ((struct {mangle_type_name(stmt.func_return_type, False)}){{ .__as = {{ .__err = {fal}.__as.__err }}, .__var = 1 }});']
         output += [pad + '}']
         return output
     if isinstance(stmt, StmtBreak):
         if stmt.label is not None:
-            output += [pad + f'goto __label_break_{stmt.label};']
+            output += [prefix + f'goto __label_break_{stmt.label};']
         else:
-            output += [pad + 'break;']
+            output += [prefix + 'break;']
         return output;
     if isinstance(stmt, StmtCont):
         if stmt.label is not None:
-            output += [pad + f'goto __label_continue_{stmt.label};']
+            output += [prefix + f'goto __label_continue_{stmt.label};']
         else:
-            output += [pad + 'continue;']
+            output += [prefix + 'continue;']
         return output;
     if isinstance(stmt, StmtBind):
         if stmt.val is not None:
-            output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut, False)} = {emit_expr(stmt.val, False)};']
+            output += [prefix + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut, False)} = {emit_expr(stmt.val, False)};']
         else:
-            output += [pad + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut, False)};']
+            output += [prefix + f'{emit_type_and_name(stmt.ty, stmt.name, stmt.mut, False)};']
         return output
     if isinstance(stmt, StmtAssign):
-        output += [pad + f'{emit_expr(stmt.lhs, False)} {stmt.op} {emit_expr(stmt.rhs, False)};']
+        output += [prefix + f'{emit_expr(stmt.lhs, False)} {stmt.op} {emit_expr(stmt.rhs, False)};']
         return output
     if isinstance(stmt, StmtFor):
         if stmt.expr is not None:
-            output += [pad + f'while ({emit_expr(stmt.expr, False)}) {{']
+            output += [prefix + f'while ({emit_expr(stmt.expr, False)}) {{']
         else:
-            output += [pad + 'while (1) {']
+            output += [prefix + 'while (1) {']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         if stmt.label is not None:
-            output += [pad + f'    __label_continue_{stmt.label}: (void)0;']
+            output += [prefix + f'    __label_continue_{stmt.label}: (void)0;']
         output += [pad + '}']
         if stmt.label is not None:
-            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+            output += [prefix + f'__label_break_{stmt.label}: (void)0;']
         return output
     if isinstance(stmt, StmtForLet):
-        output += [pad + '{']
-        output += [pad + f'while (1) {{']
+        output += [prefix + '{']
+        output += [prefix + f'while (1) {{']
         if isinstance(stmt.bind.ty, TypePointer):
-            output += [pad + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(cast(Expr, stmt.bind.val), False)}.__ptr;']
-            output += [pad + f'    if ({stmt.bind.name} == 0) {{ break; }}']
+            output += [prefix + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(cast(Expr, stmt.bind.val), False)}.__ptr;']
+            output += [prefix + f'    if ({stmt.bind.name} == 0) {{ break; }}']
             for s in stmt.stmts:
                 output += emit_stmt(s, indent + 4)
         else:
             eprint('you probably dont want to use for let with errs since we dont propagate them unless we add an else block')
             fal = f'__fal{COUNTER}'
-            output += [pad + f'    {emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False, pub=False)} = {emit_expr(cast(Expr, stmt.bind.val), False)};']
-            output += [pad + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {fal}.__as.__ok;']
-            output += [pad + f'    if ({fal}.__var == 0) {{']
+            output += [prefix + f'    {emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False, pub=False)} = {emit_expr(cast(Expr, stmt.bind.val), False)};']
+            output += [prefix + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {fal}.__as.__ok;']
+            output += [prefix + f'    if ({fal}.__var == 0) {{']
             for s in stmt.stmts:
                 output += emit_stmt(s, indent + 8)
             output += [pad + '    }']
         if stmt.label is not None:
-            output += [pad + f'    __label_continue_{stmt.label}: (void)0;']
+            output += [prefix + f'    __label_continue_{stmt.label}: (void)0;']
         output += [pad + '}']
         if stmt.label is not None:
-            output += [pad + f'__label_break_{stmt.label}: (void)0;']
+            output += [prefix + f'__label_break_{stmt.label}: (void)0;']
         output += [pad + '}']
         return output
     if isinstance(stmt, StmtCall):
-        output += [pad + f'{emit_expr(stmt.expr, False)};']
+        output += [prefix + f'{emit_expr(stmt.expr, False)};']
         return output
     output += [f'{stmt}']
     return output
@@ -2073,9 +2074,9 @@ if not make_pkg:
     final_structs = list(ARRAY_STRUCTS) + list(QPOINTER_STRUCTS) + list(VIEW_STRUCTS) + list(FALLIBLE_STRUCTS) + structs
 
     for attr in pkg.attrs:
-        if attr.items[0] == 'HACK_reorder':
-            above = attr.items[1]
-            below = attr.items[2]
+        if attr.items[0] == 'HACK_typeorder':
+            above = 'struct ' + attr.items[1]
+            below = 'struct ' + attr.items[2]
             removed: Optional[Tuple[int, str]] = None
             for (i, struct) in enumerate(final_structs):
                 if struct.startswith(above):

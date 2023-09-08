@@ -1,7 +1,7 @@
 // methods of reading Flattended Device Tree (FDT) or DeviceTree Blob (DTB)
 // data fed in from the bootloader.
 // see https://devicetree-specification.readthedocs.io
-#[HACK_reorder "struct _ZN4Kfdt4PropE" "struct __fal_ZN4Kfdt4PropE"]
+#[HACK_typeorder "_ZN4Kfdt4PropE" "__fal_ZN4Kfdt4PropE"]
 pkg Kfdt;
 
 use U8;
