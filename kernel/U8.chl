@@ -12,13 +12,13 @@ pub fn is_zero(val: U8): Bool {
     return val == 0;
 }
 
-pub fn find(items: [U8], predicate: fn(U8): Bool): !UInt {
+pub fn find(items: []U8, predicate: fn(U8): Bool): !UInt {
     return find_ctx(items, predicate as &mut U8, fn(ctx: &mut U8, val: U8): Bool {
         return (ctx as fn(U8): Bool)(val);
     });
 }
 
-pub fn find_ctx(items: [U8], ctx: &mut U8, predicate: fn(&mut U8, U8): Bool): !UInt {
+pub fn find_ctx(items: []U8, ctx: &mut U8, predicate: fn(&mut U8, U8): Bool): !UInt {
     let mut i = 0u;
     for i < lengthof items {
         if predicate(ctx, items[i]) {
@@ -29,7 +29,7 @@ pub fn find_ctx(items: [U8], ctx: &mut U8, predicate: fn(&mut U8, U8): Bool): !U
     return ERR_NOT_FOUND err;
 }
 
-pub fn parse(base: UInt, str: [U8]): !U8 {
+pub fn parse(base: UInt, str: []U8): !U8 {
     try let uint: UInt = UInt::parse(base, str);
     if uint > (MAX as UInt) {
         return UInt::ERR_OUT_OF_RANGE err;

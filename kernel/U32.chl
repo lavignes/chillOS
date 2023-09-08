@@ -8,13 +8,13 @@ pub let BITS: UInt = sizeof U32 * 8;
 
 pub let ERR_NOT_FOUND: Int = 0;
 
-pub fn find(items: [U32], predicate: fn(U32): Bool): !UInt {
+pub fn find(items: []U32, predicate: fn(U32): Bool): !UInt {
     return find_ctx(items, predicate as &mut U8, fn(ctx: &mut U8, val: U32): Bool {
         return (ctx as fn(U32): Bool)(val);
     });
 }
 
-pub fn find_ctx(items: [U32], ctx: &mut U8, predicate: fn(&mut U8, U32): Bool): !UInt {
+pub fn find_ctx(items: []U32, ctx: &mut U8, predicate: fn(&mut U8, U32): Bool): !UInt {
     let mut i = 0u;
     for i < lengthof items {
         if predicate(ctx, items[i]) {
@@ -25,13 +25,13 @@ pub fn find_ctx(items: [U32], ctx: &mut U8, predicate: fn(&mut U8, U32): Bool): 
     return ERR_NOT_FOUND err;
 }
 
-pub fn map(dst: [mut U32], src: [U32], func: fn(U32): U32) {
+pub fn map(dst: []mut U32, src: []U32, func: fn(U32): U32) {
     map_ctx(dst, src, func as &mut U8, fn(ctx: &mut U8, val: U32): U32 {
         return (ctx as fn(U32): U32)(val);
     });
 }
 
-pub fn map_ctx(dst: [mut U32], src: [U32], ctx: &mut U8, func: fn(&mut U8, U32): U32) {
+pub fn map_ctx(dst: []mut U32, src: []U32, ctx: &mut U8, func: fn(&mut U8, U32): U32) {
     let mut i = 0u;
     let mut length: UInt = UInt::min(lengthof dst, lengthof src);
     for i < length {
@@ -78,7 +78,7 @@ pub fn count_ones(mut val: U32): UInt {
     return val;
 }
 
-let LOG2_TABLE: [U32; 32] = [
+let LOG2_TABLE: [32]U32 = [
      0,  9,  1, 10, 13, 21,  2, 29,
     11, 14, 16, 18, 22, 25,  3, 30,
      8, 12, 20, 28, 15, 17, 24,  7,
@@ -94,7 +94,7 @@ pub fn log2(mut val: U32): U32 {
     return LOG2_TABLE[(val * 0x07C4_ACDD) >> 27];
 }
 
-pub fn parse(base: UInt, str: [U8]): !U32 {
+pub fn parse(base: UInt, str: []U8): !U32 {
     try let uint: UInt = UInt::parse(base, str);
     if uint > (MAX as UInt) {
         return UInt::ERR_OUT_OF_RANGE err;

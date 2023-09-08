@@ -24,7 +24,7 @@ pub fn min(lhs: UInt, rhs: UInt): UInt {
 pub let ERR_OUT_OF_RANGE: Int = -1;
 pub let ERR_MALFORMED: Int = -2;
 
-pub fn parse(base: UInt, str: [U8]): !UInt {
+pub fn parse(base: UInt, str: []U8): !UInt {
     let cutoff = MAX / base;
     let cutlim = MAX % base;
     let mut i = 0u;

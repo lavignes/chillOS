@@ -11,7 +11,7 @@ pub type AllocTable = {
     dealloc: FnDealloc,
 };
 
-pub fn set(mem: [mut U8], val: U8) {
+pub fn set(mem: []mut U8, val: U8) {
     let mut i = 0u;
     for i < lengthof mem {
         mem[i] = val;

@@ -4,7 +4,7 @@ use UInt;
 
 pub let ERR_NOT_FOUND: Int = 0;
 
-pub fn compare(lhs: [U8], rhs: [U8]): Int {
+pub fn compare(lhs: []U8, rhs: []U8): Int {
     let length = lengthof lhs;
     if (length != lengthof rhs) || (length == 0) {
         return -1;
@@ -23,7 +23,7 @@ pub fn compare(lhs: [U8], rhs: [U8]): Int {
     return 0;
 }
 
-pub fn find(str: [U8], substr: [U8]): !UInt {
+pub fn find(str: []U8, substr: []U8): !UInt {
     if lengthof substr == 0 {
         return ERR_NOT_FOUND err;
     }
@@ -46,15 +46,15 @@ pub fn find(str: [U8], substr: [U8]): !UInt {
     return ERR_NOT_FOUND err;
 }
 
-pub fn split(str: [U8], substr: [U8], consumer: fn([U8]): !Nil): !Nil {
-    return split_ctx(str, substr, consumer as &mut U8, fn(ctx: &mut U8, split: [U8]): !Nil {
-        return (ctx as fn([U8]): !Nil)(split);
+pub fn split(str: []U8, substr: []U8, consumer: fn([]U8): !Nil): !Nil {
+    return split_ctx(str, substr, consumer as &mut U8, fn(ctx: &mut U8, split: []U8): !Nil {
+        return (ctx as fn([]U8): !Nil)(split);
     });
 }
 
-pub fn split_ctx(str: [U8], substr: [U8], ctx: &mut U8, consumer: fn(&mut U8, [U8]): !Nil): !Nil {
+pub fn split_ctx(str: []U8, substr: []U8, ctx: &mut U8, consumer: fn(&mut U8, []U8): !Nil): !Nil {
     let mut i = 0u;
-    let mut view: [U8] = &str[i] ~ lengthof str - i;
+    let mut view: []U8 = &str[i] ~ lengthof str - i;
     for i < lengthof str {
         try let pos: UInt = find(view, substr) else {
             return consumer(ctx, view);

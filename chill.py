@@ -700,21 +700,21 @@ class Parser:
 
     def p_type_4(self, p):
         '''
-        type : BRACKET_OPEN type SEMI expr BRACKET_CLOSE
+        type : BRACKET_OPEN expr BRACKET_CLOSE type
         '''
-        p[0] = TypeArray(p[2], size=p[4])
+        p[0] = TypeArray(p[4], size=p[2])
 
     def p_type_5(self, p):
         '''
-        type : BRACKET_OPEN type BRACKET_CLOSE
+        type : BRACKET_OPEN BRACKET_CLOSE type
         '''
-        p[0] = TypeSlice(TypePointer(p[2], mut=False))
+        p[0] = TypeSlice(TypePointer(p[3], mut=False))
 
     def p_type_6(self, p):
         '''
-        type : BRACKET_OPEN MUT type BRACKET_CLOSE
+        type : BRACKET_OPEN BRACKET_CLOSE MUT type
         '''
-        p[0] = TypeSlice(TypePointer(p[3], mut=True))
+        p[0] = TypeSlice(TypePointer(p[4], mut=True))
 
     def p_type_7(self, p):
         '''
