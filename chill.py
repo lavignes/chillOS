@@ -1979,8 +1979,12 @@ for item in pkg.items:
             pub_forward_fns += [f'extern {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
             output += [f'{emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)}) {{']
         else:
-            forward_fns += [f'static {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
-            output += [f'static {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)}) {{']
+            if any(map(lambda attr: attr.items[0] == 'inline', item.attrs)):
+                forward_fns += [f'static inline {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
+                output += [f'static inline {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)}) {{']
+            else:
+                forward_fns += [f'static {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
+                output += [f'static {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)}) {{']
         for stmt in item.stmts:
             output += emit_stmt(stmt, 4)
         output += ['}']
