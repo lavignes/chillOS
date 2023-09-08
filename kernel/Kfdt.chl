@@ -10,7 +10,7 @@ use UInt;
 use Mem;
 use Ascii;
 
-pub type Iter = {
+pub type Iter: {
     name: []U8,
     first_prop: ?U32,  // address of first prop token
     prop: ?U32,        // address of current prop token
@@ -20,7 +20,7 @@ pub type Iter = {
     size_cells: UInt,  // width in U32s used to define bus address sizes of direct child nodes
 };
 
-pub type Tree = {
+pub type Tree: {
     structs_addr: &U32,
     strings_addr: &U8,
     readonly_mem_map_addr: &U8,
@@ -54,7 +54,7 @@ pub fn init_from_addr(tree: &mut Tree, addr: &U8): !Nil {
     return iter_init(tree, &mut tree.root, &mut tok);
 }
 
-type PathCtx = {
+type PathCtx: {
     tree: &Tree,
     iter: Iter,
 };
@@ -80,7 +80,7 @@ pub fn load_path(tree: &Tree, mut path: []U8, iter: &mut Iter): !Nil {
     *iter = path_ctx.iter;
 }
 
-pub type Uart = {
+pub type Uart: {
     compatible: []U8,
 };
 
@@ -97,7 +97,7 @@ fn rewind(iter: &mut Iter) {
     iter.child = iter.first_child;
 }
 
-type Prop = {
+type Prop: {
     name: []U8,
     data: []U8,
 };
@@ -278,7 +278,7 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): !Nil {
     }
 }
 
-type RawHeader = {
+type RawHeader: {
     magic: U32,
     totalsize: U32,
     off_dt_struct: U32,

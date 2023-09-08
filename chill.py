@@ -658,7 +658,7 @@ class Parser:
 
     def p_pkg_type(self, p):
         '''
-        pkg_type : TYPE ID EQUAL type SEMI
+        pkg_type : TYPE ID COLON type SEMI
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = p[4]
