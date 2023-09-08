@@ -1930,10 +1930,20 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     if isinstance(stmt, StmtForLet):
         output += [pad + '{']
         output += [pad + f'while (1) {{']
-        output += [pad + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(cast(Expr, stmt.bind.val), False)}.__ptr;']
-        output += [pad + f'    if ({stmt.bind.name} == 0) {{ break; }}']
-        for s in stmt.stmts:
-            output += emit_stmt(s, indent + 4)
+        if isinstance(stmt.bind.ty, TypePointer):
+            output += [pad + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(cast(Expr, stmt.bind.val), False)}.__ptr;']
+            output += [pad + f'    if ({stmt.bind.name} == 0) {{ break; }}']
+            for s in stmt.stmts:
+                output += emit_stmt(s, indent + 4)
+        else:
+            eprint('you probably dont want to use for let with errs since we dont propagate them unless we add an else block')
+            fal = f'__fal{COUNTER}'
+            output += [pad + f'    {emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False, pub=False)} = {emit_expr(cast(Expr, stmt.bind.val), False)};']
+            output += [pad + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {fal}.__as.__ok;']
+            output += [pad + f'    if ({fal}.__var == 0) {{']
+            for s in stmt.stmts:
+                output += emit_stmt(s, indent + 8)
+            output += [pad + '    }']
         if stmt.label is not None:
             output += [pad + f'    __label_continue_{stmt.label}: (void)0;']
         output += [pad + '}']

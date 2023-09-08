@@ -124,10 +124,9 @@ fn next_prop(tree: &Tree, iter: &mut Iter): !Prop {
     let data_len = U32::endian_swap(*tok) as UInt;
     tok += 1; // consume data size
     try let string: [U8] = get_string(tree, U32::endian_swap(*tok));
+    tok += 1; // consume name offset
     let mut prop: Prop;
     prop.name = string;
-
-    tok += 1; // consume name offset
     prop.data = tok as &U8 ~ data_len;
     // skip prop data, align to next token, and skip TOK_NOPs
     tok = U32::align_to_next((tok as &U8) + data_len);
