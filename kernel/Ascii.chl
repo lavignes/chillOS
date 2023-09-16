@@ -4,6 +4,21 @@ use UInt;
 
 pub let ERR_NOT_FOUND: Int = 0;
 
+pub fn before(str: []U8, substr: []U8): []U8 {
+    try let pos: UInt = find(str, substr) else {
+        return str;
+    }
+    return &str[0] ~ pos;
+}
+
+pub fn after(str: []U8, substr: []U8): []U8 {
+    try let pos: UInt = find(str, substr) else {
+        return str;
+    }
+    let i = pos + lengthof substr;
+    return &str[i] ~ lengthof str - i;
+}
+
 pub fn compare(lhs: []U8, rhs: []U8): Int {
     let length = lengthof lhs;
     if (length != lengthof rhs) || (length == 0) {

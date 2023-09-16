@@ -1,4 +1,6 @@
 // kernel entry point
+#[HACK_typeorder "_ZN4Kfdt4UartE" "__fal_ZN4Kfdt4UartE"]
+#[HACK_typeorder "_ZN4Kfdt4IterE" "__fal_ZN4Kfdt4IterE"]
 pkg K;
 
 use Kfdt;
@@ -9,8 +11,7 @@ pub fn start(fdt_start: &U8) {
         halt();
     }
 
-    let mut uart: Kfdt::Uart;
-    try let _: Nil = Kfdt::find_uart(&mut tree, &mut uart) else {
+    try let uart: Kfdt::Uart = Kfdt::find_uart(&tree) else {
         halt();
     }
 

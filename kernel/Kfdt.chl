@@ -2,6 +2,8 @@
 // data fed in from the bootloader.
 // see https://devicetree-specification.readthedocs.io
 #[HACK_typeorder "_ZN4Kfdt4PropE" "__fal_ZN4Kfdt4PropE"]
+#[HACK_typeorder "_ZN4Kfdt4UartE" "__fal_ZN4Kfdt4UartE"]
+#[HACK_typeorder "_ZN4Kfdt4IterE" "__fal_ZN4Kfdt4IterE"]
 pkg Kfdt;
 
 use U8;
@@ -12,12 +14,10 @@ use Ascii;
 
 pub type Iter: {
     name: []U8,
-    first_prop: ?U32,  // address of first prop token
     prop: ?U32,        // address of current prop token
-    first_child: ?U32, // address of first child begin node token
     child: ?U32,       // address of current child begin node token
-    addr_cells: UInt,  // width in U32s used to define bus address offsets of direct child nodes
-    size_cells: UInt,  // width in U32s used to define bus address sizes of direct child nodes
+    addr_cells: !UInt, // width in U32s used to define bus address offsets of direct child nodes
+    size_cells: !UInt, // width in U32s used to define bus address sizes of direct child nodes
 };
 
 pub type Tree: {
@@ -59,7 +59,7 @@ type PathCtx: {
     iter: Iter,
 };
 
-pub fn load_path(tree: &Tree, mut path: []U8, iter: &mut Iter): !Nil {
+pub fn find_path(tree: &Tree, mut path: []U8): !Iter {
     // the path should be absolute
     if path[0] != '/' {
         return ERR_NOT_FOUND err;
@@ -77,24 +77,24 @@ pub fn load_path(tree: &Tree, mut path: []U8, iter: &mut Iter): !Nil {
         try let _: Nil = find_child(path_ctx.tree, &mut path_ctx.iter, split, &mut child);
         path_ctx.iter = child;
     });
-    *iter = path_ctx.iter;
+    return path_ctx.iter ok;
 }
 
 pub type Uart: {
+    name: []U8,
     compatible: []U8,
 };
 
-pub fn find_uart(tree: &mut Tree, uart: &mut Uart): !Nil {
+pub fn find_uart(tree: &Tree): !Uart {
     // for now, we'll assume a "/chosen" uart is defined
-    let mut iter: Iter;
-    try let _: Nil = load_path(tree, "/chosen", &mut iter);
-    try let prop: Prop = find_prop(tree, &mut iter, "stdout-path");
-    try let _: Nil = load_path(tree, prop.name, &mut iter);
-}
-
-fn rewind(iter: &mut Iter) {
-    iter.prop = iter.first_prop;
-    iter.child = iter.first_child;
+    try let mut chosen: Iter = find_path(tree, "/chosen");
+    try let stdout_path: Prop = find_prop(tree, &mut chosen, "stdout-path");
+    try let mut stdout: Iter = find_path(tree, Ascii::before(stdout_path.data, "\x00"));
+    try let compatible: Prop = find_prop(tree, &mut stdout, "compatible");
+    let mut uart: Uart;
+    uart.name = stdout.name;
+    uart.compatible = Ascii::before(compatible.data, "\x00");
+    return uart ok;
 }
 
 type Prop: {
@@ -116,10 +116,10 @@ fn next_prop(tree: &Tree, iter: &mut Iter): !Prop {
     try let mut tok: &U32 = iter.prop else {
         return ERR_NOT_FOUND err;
     }
-    if *tok != TOK_PROP {
+    let mut val: U32 = U32::endian_swap(*tok);
+    if val != TOK_PROP {
         return ERR_NOT_FOUND err;
     }
-    let mut val: U32 = U32::endian_swap(*tok);
     tok += 1; // consume TOK_PROP token
     let data_len = U32::endian_swap(*tok) as UInt;
     tok += 1; // consume data size
@@ -135,7 +135,12 @@ fn next_prop(tree: &Tree, iter: &mut Iter): !Prop {
     } else {
         return ERR_MALFORMED err;
     }
-
+    val = U32::endian_swap(*tok);
+    if val == TOK_PROP {
+        iter.prop = tok as ?U32;
+    } else {
+        iter.prop = 0 as ?U32;
+    }
     return prop ok;
 }
 
@@ -146,51 +151,59 @@ fn find_child(tree: &Tree, iter: &mut Iter, name: []U8, child: &mut Iter): !Nil 
             break;
         }
     }
-    return ERR_NOT_FOUND err;
 }
 
 // performs recursive inorder traversals to get to the next child
-fn next_child(tree: &Tree, iter: &mut Iter, child: &mut Iter): !Nil {
-    try let mut tok: &U32 = iter.child else {
+fn next_child_tok(tree: &Tree, iter: &mut Iter, child: &mut Iter, tok: &mut &U32): !Nil {
+    try let _: &U32 = iter.child else {
         return ERR_NOT_FOUND err;
     }
-    try let _: Nil = iter_init(tree, child, &mut tok);
+    try let _: Nil = iter_init(tree, child, tok);
 
     // so now we are either at the end of the child node, or at a grandchild
-    let mut val: U32 = U32::endian_swap(*tok);
-    for val == TOK_BEGIN_NODE {
-        // unfortunately, we must recurse down the entire subtree to skip to the next child
-        let mut grandchild: Iter; // create an iter over the granchildren
-        try let _: Nil = iter_init(tree, &mut grandchild, &mut tok);
+    let mut val: U32 = U32::endian_swap(**tok);
+    for val == TOK_BEGIN_NODE { // while we have a grandchild
+        // unfortunately, we must recurse down the entire grandchild tree to skip to the next child
+        let mut grandchild: Iter;
+        try let _: Nil = iter_init(tree, &mut grandchild, tok);
 
         // skip over all great-grandchildren
         for let _: &U32 = grandchild.child {
-            let mut tmp: Iter;
-            try let _: Nil = next_child(tree, &mut grandchild, &mut tmp);
+            let mut great_grandchild: Iter;
+            try let _: Nil = next_child_tok(tree, &mut grandchild, &mut great_grandchild, tok) else e {
+                if e == ERR_NOT_FOUND {
+                    break;
+                }
+                return e err;
+            }
         }
-        // see if we have another grandchild
-        tok += 1; // consume assumed TOK_END_NODE
-        val = U32::endian_swap(*tok);
+        *tok += 1; // consume TOK_END_NODE of grandchild
+        val = U32::endian_swap(**tok);
     }
 
-    // we *must* be at the end of the child
-    if val != TOK_END_NODE {
+    if val != TOK_END_NODE { // we *must* be at the end of the child
         return ERR_MALFORMED err;
     }
+    *tok += 1; // consume TOK_END_NODE
+    val = U32::endian_swap(**tok);
 
-    tok += 1;
-    val = U32::endian_swap(*tok);
-    // we now either have a TOK_BEGIN_NODE of a child, or the TOK_END_NODE
+    // we now either have a TOK_BEGIN_NODE of the next child, or the TOK_END_NODE
     if val == TOK_BEGIN_NODE {
-        iter.child = tok as ?U32;
+        iter.child = *tok as ?U32;
         return;
     }
     if val != TOK_END_NODE {
         return ERR_MALFORMED err;
     }
+    // end of all children
+    iter.child = 0 as ?U32;
+}
 
-    iter.child = 0 as ?U32; // zero to indicate we are all done
-    return ERR_NOT_FOUND err;
+fn next_child(tree: &Tree, iter: &mut Iter, child: &mut Iter): !Nil {
+    try let mut tok: &U32 = iter.child else {
+        return ERR_NOT_FOUND err;
+    }
+    return next_child_tok(tree, iter, child, &mut tok);
 }
 
 let TOK_BEGIN_NODE: U32 = 0x0000_0001;
@@ -243,7 +256,6 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): !Nil {
     // after this, we may have a TOK_PROP, the TOK_BEGIN_NODE of a child, or the TOK_END_NODE
     let mut val: U32 = U32::endian_swap(**tok);
     if val == TOK_PROP {
-        iter.first_prop = *tok as ?U32;
         iter.prop = *tok as ?U32;
         // now we need to skip over the prop data and all subsequent props
         for val == TOK_PROP {
@@ -255,9 +267,9 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): !Nil {
 
             // if the property is one of #address-cells or #size-cells read them now
             if Ascii::compare("#address-cells", prop_name) == 0 {
-                iter.addr_cells = U32::endian_swap(**tok);
+                iter.addr_cells = (U32::endian_swap(**tok) as UInt) ok !UInt;
             } else if Ascii::compare("#size-cells", prop_name) == 0 {
-                iter.size_cells = U32::endian_swap(**tok);
+                iter.size_cells = (U32::endian_swap(**tok) as UInt) ok !UInt;
             }
             // skip prop data, align to next token, and skip TOK_NOPs
             *tok = U32::align_to_next((*tok as &U8) + prop_data_size);
@@ -271,7 +283,6 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): !Nil {
     }
     // we now either have a TOK_BEGIN_NODE of a child, or the TOK_END_NODE
     if val == TOK_BEGIN_NODE {
-        iter.first_child = *tok as ?U32;
         iter.child = *tok as ?U32;
     } else if val != TOK_END_NODE {
         return ERR_MALFORMED err;

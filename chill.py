@@ -6,7 +6,7 @@ import functools
 import json
 import os
 import sys
-from typing import List, Mapping, Optional, Set, Tuple, Union, Sequence, cast
+from typing import Dict, List, Mapping, Optional, Tuple, Union, Sequence, cast
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -82,12 +82,31 @@ I64 = TypeInteger(ffi='I64')
 UInt = TypeInteger(ffi='UInt')
 Int = TypeInteger(ffi='Int')
 
+PRIMS: Mapping[Name, Type] = {
+    Name('*', 'Nil'): Nil,
+    Name('*', 'Bool'): Bool,
+    Name('*', 'U8'): U8,
+    Name('*', 'I8'): I8,
+    Name('*', 'U16'): U16,
+    Name('*', 'I16'): I16,
+    Name('*', 'U32'): U32,
+    Name('*', 'I32'): I32,
+    Name('*', 'U64'): U64,
+    Name('*', 'I64'): I64,
+    Name('*', 'UInt'): UInt,
+    Name('*', 'Int'): Int,
+}
+
+CUSTOM_TYPES: Dict[Name, Type] = {}
+
 # very basic and buggy type checker and inference
 # in the real compiler we need to make multiple passes
 # over the AST to infer types correctly. this fails in lots
 # of places besides basic integers and expressions
 def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
     if expr.ty is not None:
+        if isinstance(expr.ty, Name):
+            return CUSTOM_TYPES.get(expr.ty, expr.ty)
         return expr.ty
     if isinstance(expr, ExprIndex):
         lhs = expr_type(expr.lhs)
@@ -97,7 +116,15 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
         if isinstance(lhs, TypeSlice):
             expr.ty = lhs.ty.ty
             return lhs.ty.ty
-        raise SyntaxError(f'illegal index: {lhs}[{expr.ty}]')
+        raise SyntaxError('illegal index: {lhs}[{rhs}]')
+    if isinstance(expr, ExprAccess):
+        lhs = expr_type(expr.lhs)
+        if isinstance(lhs, TypeStruct):
+            for field in lhs.fields:
+                if field.name == expr.field:
+                    expr.ty = field.ty
+                    return field.ty
+        raise SyntaxError('illegal access: {lhs}.{rhs}')
     if isinstance(expr, ExprCast):
         lhs = expr_type(expr.expr)
         ty = expr.ty
@@ -175,20 +202,6 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
         raise SyntaxError(f'illegal operation: {expr.op} {rhs}')
     return None
 
-PRIMS: Mapping[Name, Type] = {
-    Name('*', 'Nil'): Nil,
-    Name('*', 'Bool'): Bool,
-    Name('*', 'U8'): U8,
-    Name('*', 'I8'): I8,
-    Name('*', 'U16'): U16,
-    Name('*', 'I16'): I16,
-    Name('*', 'U32'): U32,
-    Name('*', 'I32'): I32,
-    Name('*', 'U64'): U64,
-    Name('*', 'I64'): I64,
-    Name('*', 'UInt'): UInt,
-    Name('*', 'Int'): Int,
-}
 
 COUNTER: int = 0
 
@@ -662,6 +675,7 @@ class Parser:
         '''
         name = Name(self.pkg_name, p[2])
         self.scopes[-1][name] = p[4]
+        CUSTOM_TYPES[name] = p[4]
         p[0] = PkgType(line=p.lineno(1), name=name, ty=p[4], pub=False, attrs=[])
 
     def p_type_1(self, p):
@@ -1611,25 +1625,25 @@ parser = Parser()
 with open(filename) as f:
     pkg = parser.parse(f.read())
 
-ARRAY_FORWARDS: Set[str] = set()
-ARRAY_STRUCTS: Set[str] = set()
-QPOINTER_FORWARDS: Set[str] = set()
-QPOINTER_STRUCTS: Set[str] = set()
-FALLIBLE_FORWARDS: Set[str] = set()
-FALLIBLE_STRUCTS: Set[str] = set()
-VIEW_FORWARDS: Set[str] = set()
-VIEW_STRUCTS: Set[str] = set()
+ARRAY_FORWARDS: List[str] = []
+ARRAY_STRUCTS: List[str] = []
+QPOINTER_FORWARDS: List[str] = []
+QPOINTER_STRUCTS: List[str] = []
+FALLIBLE_FORWARDS: List[str] = []
+FALLIBLE_STRUCTS: List[str] = []
+VIEW_FORWARDS: List[str] = []
+VIEW_STRUCTS: List[str] = []
 LAMBDA_FORWARDS: List[str] = []
 LAMBDAS: List[str] = []
 
-PUB_ARRAY_FORWARDS: Set[str] = set()
-PUB_ARRAY_STRUCTS: Set[str] = set()
-PUB_QPOINTER_FORWARDS: Set[str] = set()
-PUB_QPOINTER_STRUCTS: Set[str] = set()
-PUB_FALLIBLE_FORWARDS: Set[str] = set()
-PUB_FALLIBLE_STRUCTS: Set[str] = set()
-PUB_VIEW_FORWARDS: Set[str] = set()
-PUB_VIEW_STRUCTS: Set[str] = set()
+PUB_ARRAY_FORWARDS: List[str] = []
+PUB_ARRAY_STRUCTS: List[str] = []
+PUB_QPOINTER_FORWARDS: List[str] = []
+PUB_QPOINTER_STRUCTS: List[str] = []
+PUB_FALLIBLE_FORWARDS: List[str] = []
+PUB_FALLIBLE_STRUCTS: List[str] = []
+PUB_VIEW_FORWARDS: List[str] = []
+PUB_VIEW_STRUCTS: List[str] = []
 
 def mangle_type_name(ty: Union[Type, Name], pub: bool) -> str:
     if isinstance(ty, Name):
@@ -1643,18 +1657,18 @@ def mangle_type_name(ty: Union[Type, Name], pub: bool) -> str:
             return f'__mutptr{mangle_type_name(ty.ty, pub)}'
         return f'__ptr{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeQPointer):
-        QPOINTER_FORWARDS.add(f'struct __qptr{mangle_type_name(ty.ty, pub)};')
-        QPOINTER_STRUCTS.add(f'struct __qptr{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __ptr; }};')
+        QPOINTER_FORWARDS.append(f'struct __qptr{mangle_type_name(ty.ty, pub)};')
+        QPOINTER_STRUCTS.append(f'struct __qptr{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __ptr; }};')
         if pub:
-            PUB_QPOINTER_FORWARDS.add(f'struct __qptr{mangle_type_name(ty.ty, pub)};')
-            PUB_QPOINTER_STRUCTS.add(f'struct __qptr{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __ptr; }};')
+            PUB_QPOINTER_FORWARDS.append(f'struct __qptr{mangle_type_name(ty.ty, pub)};')
+            PUB_QPOINTER_STRUCTS.append(f'struct __qptr{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __ptr; }};')
         return f'__qptr{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeFallible):
-        FALLIBLE_FORWARDS.add(f'struct __fal{mangle_type_name(ty.ty, pub)};')
-        FALLIBLE_STRUCTS.add(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ {emit_type_or_name(ty.ty, pub)} __ok; Int __err; }} __as; UInt __var; }};')
+        FALLIBLE_FORWARDS.append(f'struct __fal{mangle_type_name(ty.ty, pub)};')
+        FALLIBLE_STRUCTS.append(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ Int __err; {emit_type_or_name(ty.ty, pub)} __ok; }} __as; UInt __var; }};')
         if pub:
-            PUB_FALLIBLE_FORWARDS.add(f'struct __fal{mangle_type_name(ty.ty, pub)};')
-            PUB_FALLIBLE_STRUCTS.add(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ {emit_type_or_name(ty.ty, pub)} __ok; Int __err; }} __as; UInt __var; }};')
+            PUB_FALLIBLE_FORWARDS.append(f'struct __fal{mangle_type_name(ty.ty, pub)};')
+            PUB_FALLIBLE_STRUCTS.append(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ Int __err; {emit_type_or_name(ty.ty, pub)} __ok; }} __as; UInt __var; }};')
         return f'__fal{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeNil):
         return ty.ffi
@@ -1663,18 +1677,18 @@ def mangle_type_name(ty: Union[Type, Name], pub: bool) -> str:
         # hack: strip suffix
         if isinstance(ty.size, ExprInteger) and size.endswith('U') or size.endswith('L'):
             size = size[:-1]
-        ARRAY_FORWARDS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)};')
-        ARRAY_STRUCTS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items[{size}]; }};')
+        ARRAY_FORWARDS.append(f'struct __arr{size}{mangle_type_name(ty.ty, pub)};')
+        ARRAY_STRUCTS.append(f'struct __arr{size}{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items[{size}]; }};')
         if pub:
-            PUB_ARRAY_FORWARDS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)};')
-            PUB_ARRAY_STRUCTS.add(f'struct __arr{size}{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items[{size}]; }};')
+            PUB_ARRAY_FORWARDS.append(f'struct __arr{size}{mangle_type_name(ty.ty, pub)};')
+            PUB_ARRAY_STRUCTS.append(f'struct __arr{size}{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items[{size}]; }};')
         return f'__arr{size}{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeSlice):
-        VIEW_FORWARDS.add(f'struct __view{mangle_type_name(ty.ty, pub)};')
-        VIEW_STRUCTS.add(f'struct __view{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items; UInt __length; }};')
+        VIEW_FORWARDS.append(f'struct __view{mangle_type_name(ty.ty, pub)};')
+        VIEW_STRUCTS.append(f'struct __view{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items; UInt __length; }};')
         if pub:
-            PUB_VIEW_FORWARDS.add(f'struct __view{mangle_type_name(ty.ty, pub)};')
-            PUB_VIEW_STRUCTS.add(f'struct __view{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items; UInt __length; }};')
+            PUB_VIEW_FORWARDS.append(f'struct __view{mangle_type_name(ty.ty, pub)};')
+            PUB_VIEW_STRUCTS.append(f'struct __view{mangle_type_name(ty.ty, pub)} {{ {emit_type_or_name(ty.ty, pub)} __items; UInt __length; }};')
         return f'__view{mangle_type_name(ty.ty, pub)}'
     return f'{ty}'
 
@@ -1696,9 +1710,9 @@ def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
         return ty.ffi
     if isinstance(ty, TypeStruct):
         fields = []
-        for (i, field) in enumerate(ty.fields):
+        for field in ty.fields:
             if apply_visibility and (hide_all or not field.pub):
-                fields += [f'{emit_type_and_name(field.ty, "__hidden" + str(i), mut=True, pub=True)};']
+                fields += [f'{emit_type_and_name(field.ty, "__hidden_" + field.name, mut=True, pub=True)};']
             else:
                 fields += [f'{emit_type_and_name(field.ty, field.name, mut=True, pub=True)};']
         return f'{{ {"".join(fields)} }}'
@@ -1758,8 +1772,8 @@ def emit_expr(expr: Expr, pub: bool) -> str:
         ty = expr.ty
         expr_type(expr)
         if expr.ok:
-            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__as = {{ .__ok = {emit_expr(expr.expr, pub)} }}, .__var = 0 }})'
-        return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__as = {{ .__err = {emit_expr(expr.expr, pub)} }}, .__var = 1 }})'
+            return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__as = {{ .__ok = {emit_expr(expr.expr, pub)} }}, .__var = 1 }})'
+        return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__as = {{ .__err = {emit_expr(expr.expr, pub)} }}, .__var = 0 }})'
     if isinstance(expr, ExprCast):
         ty = expr.ty
         if isinstance(ty, TypeQPointer):
@@ -1855,7 +1869,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         else:
             output += [prefix + f'{emit_type_and_name(TypeFallible(ty=stmt.taken.ty), fal, mut=False, pub=False)} = {emit_expr(val, False)};']
             output += [prefix + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut, False)} = {fal}.__as.__ok;']
-            output += [prefix + f'if ({fal}.__var == 0) {{']
+            output += [prefix + f'if ({fal}.__var != 0) {{']
         for s in stmt.stmts:
             output += emit_stmt(s, indent + 4)
         output += [pad + '}']
@@ -1881,7 +1895,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         else:
             output += [prefix + f'{emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False, pub=False)} = {emit_expr(val, False)};']
             output += [prefix + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {fal}.__as.__ok;']
-            output += [prefix + f'if ({fal}.__var == 1) {{']
+            output += [prefix + f'if ({fal}.__var == 0) {{']
             if stmt.else_bind is not None:
                 output += [prefix + f'    {emit_type_and_name(stmt.else_bind.ty, stmt.else_bind.name, stmt.else_bind.mut, False)} = {fal}.__as.__err;']
         if len(stmt.else_stmts) > 0:
@@ -1891,7 +1905,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             if isinstance(stmt.bind.ty, TypePointer):
                 output += [prefix + f'    return {stmt.bind.name};']
             else:
-                output += [prefix + f'    return ((struct {mangle_type_name(stmt.func_return_type, False)}){{ .__as = {{ .__err = {fal}.__as.__err }}, .__var = 1 }});']
+                output += [prefix + f'    return ((struct {mangle_type_name(stmt.func_return_type, False)}){{ .__as = {{ .__err = {fal}.__as.__err }}, .__var = 0 }});']
         output += [pad + '}']
         return output
     if isinstance(stmt, StmtBreak):
@@ -1941,7 +1955,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             fal = f'__fal{COUNTER}'
             output += [prefix + f'    {emit_type_and_name(TypeFallible(ty=stmt.bind.ty), fal, mut=False, pub=False)} = {emit_expr(cast(Expr, stmt.bind.val), False)};']
             output += [prefix + f'    {emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {fal}.__as.__ok;']
-            output += [prefix + f'    if ({fal}.__var == 0) {{']
+            output += [prefix + f'    if ({fal}.__var != 0) {{']
             for s in stmt.stmts:
                 output += emit_stmt(s, indent + 8)
             output += [pad + '    }']
@@ -2058,14 +2072,14 @@ for item in pkg.items:
     if isinstance(item, PkgUse) and not make_pkg:
         with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
             pkgfile = json.load(fp=f)
-            QPOINTER_FORWARDS.update(pkgfile['forward_qptrs'])
-            VIEW_FORWARDS.update(pkgfile['forward_views'])
-            FALLIBLE_FORWARDS.update(pkgfile['forward_fallible'])
-            ARRAY_FORWARDS.update(pkgfile['forward_arrays'])
-            QPOINTER_STRUCTS.update(pkgfile['qptr_structs'])
-            VIEW_STRUCTS.update(pkgfile['view_structs'])
-            FALLIBLE_STRUCTS.update(pkgfile['fallible_structs'])
-            ARRAY_STRUCTS.update(pkgfile['array_structs'])
+            QPOINTER_FORWARDS.extend(pkgfile['forward_qptrs'])
+            VIEW_FORWARDS.extend(pkgfile['forward_views'])
+            FALLIBLE_FORWARDS.extend(pkgfile['forward_fallible'])
+            ARRAY_FORWARDS.extend(pkgfile['forward_arrays'])
+            QPOINTER_STRUCTS.extend(pkgfile['qptr_structs'])
+            VIEW_STRUCTS.extend(pkgfile['view_structs'])
+            FALLIBLE_STRUCTS.extend(pkgfile['fallible_structs'])
+            ARRAY_STRUCTS.extend(pkgfile['array_structs'])
             forward_structs += pkgfile['forward_structs']
             typedefs += pkgfile['typedefs']
             structs += pkgfile['structs']
@@ -2075,7 +2089,7 @@ for item in pkg.items:
 if not make_pkg:
     # because the compiler is naive right now we sometimes need to resolve
     # declarations of structs in a particular order. We do with via HACK attributes
-    final_structs = list(ARRAY_STRUCTS) + list(QPOINTER_STRUCTS) + list(VIEW_STRUCTS) + list(FALLIBLE_STRUCTS) + structs
+    final_structs = list(dict.fromkeys(ARRAY_STRUCTS)) + list(dict.fromkeys(QPOINTER_STRUCTS)) + list(dict.fromkeys(VIEW_STRUCTS)) + list(dict.fromkeys(FALLIBLE_STRUCTS)) + structs
 
     for attr in pkg.attrs:
         if attr.items[0] == 'HACK_typeorder':
@@ -2086,10 +2100,12 @@ if not make_pkg:
                 if struct.startswith(above):
                     removed = (i, final_structs.pop(i))
                     break
-            assert removed is not None # not found
+            if removed is None:
+                raise AssertionError(f'{above} was not found')
             for (i, struct) in enumerate(final_structs):
                 if struct.startswith(below):
-                    assert removed[0] > i # already above
+                    if removed[0] <= i:
+                        raise AssertionError(f'{above} is already above {below}')
                     final_structs.insert(i, removed[1])
                     break
 
@@ -2109,16 +2125,16 @@ if not make_pkg:
         for line in forward_structs:
             print(line, file=f)
 
-        for line in ARRAY_FORWARDS:
+        for line in list(dict.fromkeys(ARRAY_FORWARDS)):
             print(line, file=f)
 
-        for line in QPOINTER_FORWARDS:
+        for line in list(dict.fromkeys(QPOINTER_FORWARDS)):
             print(line, file=f)
 
-        for line in VIEW_FORWARDS:
+        for line in list(dict.fromkeys(VIEW_FORWARDS)):
             print(line, file=f)
 
-        for line in FALLIBLE_FORWARDS:
+        for line in list(dict.fromkeys(FALLIBLE_FORWARDS)):
             print(line, file=f)
 
         for line in typedefs:
@@ -2127,7 +2143,7 @@ if not make_pkg:
         for line in final_structs:
             print(line, file=f)
 
-        for line in LAMBDA_FORWARDS:
+        for line in list(dict.fromkeys(LAMBDA_FORWARDS)):
             print(line, file=f)
 
         for line in forward_fns:
@@ -2141,16 +2157,16 @@ if not make_pkg:
 
 if make_pkg:
     pkgfile = {
-        'forward_qptrs': list(PUB_QPOINTER_FORWARDS),
-        'forward_views': list(PUB_VIEW_FORWARDS),
-        'forward_fallible': list(PUB_FALLIBLE_FORWARDS),
-        'forward_arrays': list(PUB_ARRAY_FORWARDS),
+        'forward_qptrs': list(dict.fromkeys(PUB_QPOINTER_FORWARDS)),
+        'forward_views': list(dict.fromkeys(PUB_VIEW_FORWARDS)),
+        'forward_fallible': list(dict.fromkeys(PUB_FALLIBLE_FORWARDS)),
+        'forward_arrays': list(dict.fromkeys(PUB_ARRAY_FORWARDS)),
         'forward_structs': pub_forward_structs,
         'typedefs': pub_typedefs,
-        'qptr_structs': list(PUB_QPOINTER_STRUCTS),
-        'view_structs': list(PUB_VIEW_STRUCTS),
-        'fallible_structs': list(PUB_FALLIBLE_STRUCTS),
-        'array_structs': list(PUB_ARRAY_STRUCTS),
+        'qptr_structs': list(dict.fromkeys(PUB_QPOINTER_STRUCTS)),
+        'view_structs': list(dict.fromkeys(PUB_VIEW_STRUCTS)),
+        'fallible_structs': list(dict.fromkeys(PUB_FALLIBLE_STRUCTS)),
+        'array_structs': list(dict.fromkeys(PUB_ARRAY_STRUCTS)),
         'structs': pub_structs,
         'forward_fns': pub_forward_fns
     }
