@@ -83,6 +83,7 @@ pub fn find_path(tree: &Tree, mut path: []U8): !Iter {
 pub type Uart: {
     name: []U8,
     compatible: []U8,
+    base_address: ?U8,
 };
 
 pub fn find_uart(tree: &Tree): !Uart {
@@ -91,9 +92,13 @@ pub fn find_uart(tree: &Tree): !Uart {
     try let stdout_path: Prop = find_prop(tree, &mut chosen, "stdout-path");
     try let mut stdout: Iter = find_path(tree, Ascii::before(stdout_path.data, "\x00"));
     try let compatible: Prop = find_prop(tree, &mut stdout, "compatible");
+    try let base_address: UInt = UInt::parse(16, Ascii::after(stdout.name, "@")) else {
+        return ERR_MALFORMED err;
+    }
     let mut uart: Uart;
     uart.name = stdout.name;
     uart.compatible = Ascii::before(compatible.data, "\x00");
+    uart.base_address = base_address as ?U8;
     return uart ok;
 }
 

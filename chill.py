@@ -814,27 +814,27 @@ class Parser:
 
     def p_field_list_2(self, p):
         '''
-        field_list : ID COLON type
+        field_list : attrs ID COLON type
         '''
-        p[0] = [Field(name=p[1], ty=p[3], pub=False)]
+        p[0] = [Field(name=p[2], ty=p[4], attrs=p[1], pub=False)]
 
     def p_field_list_3(self, p):
         '''
-        field_list : ID COLON type COMMA field_list
+        field_list : attrs ID COLON type COMMA field_list
         '''
-        p[0] = [Field(name=p[1], ty=p[3], pub=False)] + p[5]
+        p[0] = [Field(name=p[2], ty=p[4], attrs=p[1], pub=False)] + p[6]
 
     def p_field_list_4(self, p):
         '''
-        field_list : PUB ID COLON type
+        field_list : attrs PUB ID COLON type
         '''
-        p[0] = [Field(name=p[1], ty=p[3], pub=True)]
+        p[0] = [Field(name=p[2], ty=p[4], attrs=p[1], pub=True)]
 
     def p_field_list_5(self, p):
         '''
-        field_list : PUB ID COLON type COMMA field_list
+        field_list : attrs PUB ID COLON type COMMA field_list
         '''
-        p[0] = [Field(name=p[1], ty=p[3], pub=True)] + p[5]
+        p[0] = [Field(name=p[2], ty=p[4], attrs=p[1], pub=True)] + p[6]
 
     def p_stmt_block(self, p):
         '''
@@ -1438,6 +1438,7 @@ class FnArg:
 class Field:
     name: str
     ty: Union[Type, Name]
+    attrs: Sequence[Attr]
     pub: bool
 
 @dataclass
@@ -1778,6 +1779,8 @@ def emit_expr(expr: Expr, pub: bool) -> str:
         ty = expr.ty
         if isinstance(ty, TypeQPointer):
             expr_type(expr)
+            if isinstance(expr.expr.ty, TypeInteger) and expr.expr.ty.ffi == 'UInt':
+                return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__ptr = ((U8 *) {emit_expr(expr.expr, pub)}) }})'
             return f'((struct {mangle_type_name(cast(Union[Type, Name], ty), pub)}){{ .__ptr = {emit_expr(expr.expr, pub)} }})'
         return f'(({emit_type_and_name(expr.ty, "", mut=False, pub=pub)}) {emit_expr(expr.expr, pub)})'
     if isinstance(expr, ExprSizeof):
@@ -2122,6 +2125,8 @@ if not make_pkg:
         print('typedef U64 UInt;', file=f)
         print('typedef I64 Int;', file=f)
         print('typedef U8 Bool;', file=f)
+        print('extern U8 _ZN2U813read_volatileE(U8 const * const);', file=f)
+        print('extern Nil _ZN2U814write_volatileE(U8 * const, U8 const);', file=f)
         for line in forward_structs:
             print(line, file=f)
 

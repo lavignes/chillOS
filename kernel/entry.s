@@ -14,3 +14,4 @@ _Kentry:
 _Khartpark:
 	wfi
 	j _Khartpark
+

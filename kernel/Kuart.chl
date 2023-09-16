@@ -1,2 +1,10 @@
-// simple uart driver
+// simple ns16550a uart driver
 pkg Kuart;
+
+pub type Uart: {
+    base_address: &mut U8,
+};
+
+pub fn init(uart: &Uart) {
+    U8::write_volatile(uart.base_address + 3, 3);
+}
