@@ -3,12 +3,15 @@ ENTRY(_Kentry);
 . = 0x80000000;
 
 SECTIONS {
-	.text : ALIGN(4K) {
-		*(.init);
+    .init : ALIGN(2) {
+        *(.init);
+    }
+	.text : ALIGN(2) {
 		*(.text);
+        *(.rodata);
 
         . = ALIGN(16);
-        . += 4K;
+        . += 1M;
         PROVIDE(_KSTACK_TOP = .);
 	}
 }

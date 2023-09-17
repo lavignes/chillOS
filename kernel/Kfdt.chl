@@ -1,9 +1,7 @@
 // methods of reading Flattended Device Tree (FDT) or DeviceTree Blob (DTB)
 // data fed in from the bootloader.
 // see https://devicetree-specification.readthedocs.io
-#[HACK_typeorder "_ZN4Kfdt4PropE" "__fal_ZN4Kfdt4PropE"]
-#[HACK_typeorder "_ZN4Kfdt4UartE" "__fal_ZN4Kfdt4UartE"]
-#[HACK_typeorder "_ZN4Kfdt4IterE" "__fal_ZN4Kfdt4IterE"]
+#[HACK_typeorder "_ZN4Kfdt4IterE" "_ZN4Kfdt4TreeE"]
 pkg Kfdt;
 
 use U8;
@@ -14,7 +12,9 @@ use Ascii;
 
 pub type Iter: {
     name: []U8,
+    first_prop: ?U32,  // address of first prop token
     prop: ?U32,        // address of current prop token
+    first_child: ?U32, // address of first child begin node token
     child: ?U32,       // address of current child begin node token
     addr_cells: !UInt, // width in U32s used to define bus address offsets of direct child nodes
     size_cells: !UInt, // width in U32s used to define bus address sizes of direct child nodes
@@ -32,7 +32,7 @@ pub let ERR_BAD_MAGIC: Int = -1;
 pub let ERR_BAD_VERSION: Int = -2;
 pub let ERR_MALFORMED: Int = -3;
 
-pub fn init_from_addr(tree: &mut Tree, addr: &U8): !Nil {
+pub fn init(addr: &U8): !Tree {
     let mut header: RawHeader;
 
     // all of the data in the fdt header is U32BE, we deserialize the header into LE
@@ -46,12 +46,14 @@ pub fn init_from_addr(tree: &mut Tree, addr: &U8): !Nil {
         return ERR_BAD_VERSION err;
     }
 
+    let mut tree: Tree;
     tree.structs_addr = (addr + (header.off_dt_struct as UInt)) as &U32;
     tree.strings_addr = (addr + (header.off_dt_strings as UInt)) as &U8;
     tree.readonly_mem_map_addr = addr + (header.off_mem_rsvmap as UInt);
 
     let mut tok: &U32 = tree.structs_addr;
-    return iter_init(tree, &mut tree.root, &mut tok);
+    try let _: Nil = iter_init(&mut tree, &mut tree.root, &mut tok);
+    return tree ok;
 }
 
 type PathCtx: {
@@ -83,7 +85,7 @@ pub fn find_path(tree: &Tree, mut path: []U8): !Iter {
 pub type Uart: {
     name: []U8,
     compatible: []U8,
-    base_address: ?U8,
+    pub base_address: ?U8,
 };
 
 pub fn find_uart(tree: &Tree): !Uart {
@@ -100,6 +102,11 @@ pub fn find_uart(tree: &Tree): !Uart {
     uart.compatible = Ascii::before(compatible.data, "\x00");
     uart.base_address = base_address as ?U8;
     return uart ok;
+}
+
+pub fn rewind(iter: &mut Iter) {
+    iter.child = iter.first_child;
+    iter.prop = iter.first_prop;
 }
 
 type Prop: {
@@ -262,6 +269,7 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): !Nil {
     let mut val: U32 = U32::endian_swap(**tok);
     if val == TOK_PROP {
         iter.prop = *tok as ?U32;
+        iter.first_prop = *tok as ?U32;
         // now we need to skip over the prop data and all subsequent props
         for val == TOK_PROP {
             *tok += 1; // consume TOK_PROP token
@@ -289,6 +297,7 @@ fn iter_init(tree: &Tree, iter: &mut Iter, tok: &mut &U32): !Nil {
     // we now either have a TOK_BEGIN_NODE of a child, or the TOK_END_NODE
     if val == TOK_BEGIN_NODE {
         iter.child = *tok as ?U32;
+        iter.first_child = *tok as ?U32;
     } else if val != TOK_END_NODE {
         return ERR_MALFORMED err;
     }

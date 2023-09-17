@@ -1,6 +1,7 @@
 # vim: ft=riscv sw=8 ts=8 cc=80 noet
 .section .init
 
+.align 2
 .global _Kentry
 _Kentry:
 	csrr t0, mhartid
@@ -11,6 +12,7 @@ _Kentry:
 	call _ZN1K5startE
 	tail _ZN1K4haltE
 
+.align 2
 _Khartpark:
 	wfi
 	j _Khartpark

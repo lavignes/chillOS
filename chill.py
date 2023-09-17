@@ -609,6 +609,14 @@ class Parser:
             p[8] += [StmtRet(line=p.lineno(1), val=ExprFallible(ty=p[7], expr=ExprNil(ty=Nil), ok=True))]
         p[0] = PkgFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[5], rets=p[7], stmts=p[8])
 
+    def p_pkg_fn_2(self, p):
+        '''
+        pkg_fn : EXTERN FN ID PAREN_OPEN begin_scope arg_list end_scope PAREN_CLOSE begin_return_type end_return_type SEMI
+        '''
+        name = Name(self.pkg_name, p[3])
+        self.scopes[-1][name] = name
+        p[0] = PkgExternFn(line=p.lineno(1), name=name, ty=name, pub=False, attrs=[], args=p[6], rets=p[9])
+
     def p_begin_return_type_1(self, p):
         '''
         begin_return_type : empty
@@ -828,13 +836,13 @@ class Parser:
         '''
         field_list : attrs PUB ID COLON type
         '''
-        p[0] = [Field(name=p[2], ty=p[4], attrs=p[1], pub=True)]
+        p[0] = [Field(name=p[3], ty=p[5], attrs=p[1], pub=True)]
 
     def p_field_list_5(self, p):
         '''
         field_list : attrs PUB ID COLON type COMMA field_list
         '''
-        p[0] = [Field(name=p[2], ty=p[4], attrs=p[1], pub=True)] + p[6]
+        p[0] = [Field(name=p[3], ty=p[5], attrs=p[1], pub=True)] + p[7]
 
     def p_stmt_block(self, p):
         '''
@@ -1451,6 +1459,14 @@ class PkgFn(PkgItem):
     stmts: Sequence['Stmt']
 
 @dataclass
+class PkgExternFn(PkgItem):
+    name: Name
+    ty: Union[Type, Name]
+    pub: bool
+    args: Sequence[FnArg]
+    rets: Union[Type, Name]
+
+@dataclass
 class PkgType(PkgItem):
     name: Name
     ty: Union[Type, Name]
@@ -2006,6 +2022,14 @@ for item in pkg.items:
             output += emit_stmt(stmt, 4)
         output += ['}']
         continue
+    if isinstance(item, PkgExternFn):
+        args = []
+        for arg in item.args:
+            args += [f'{emit_type_and_name(arg.ty, arg.name, arg.mut, item.pub)}']
+        forward_fns += [f'extern {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
+        if item.pub:
+            pub_forward_fns += [f'extern {emit_type_or_name(item.rets, item.pub)} {emit_name(item.name)}({",".join(args)});']
+        continue
     if isinstance(item, PkgType):
         if isinstance(item.ty, TypeStruct):
             forward_structs += [f'struct {emit_name(item.name)};']
@@ -2094,7 +2118,17 @@ if not make_pkg:
     # declarations of structs in a particular order. We do with via HACK attributes
     final_structs = list(dict.fromkeys(ARRAY_STRUCTS)) + list(dict.fromkeys(QPOINTER_STRUCTS)) + list(dict.fromkeys(VIEW_STRUCTS)) + list(dict.fromkeys(FALLIBLE_STRUCTS)) + structs
 
-    for attr in pkg.attrs:
+    attrs = []
+    # we'll try and automate this to a degree. we know that types should always come before their boxed counterparts
+    for (i, first) in enumerate(final_structs):
+        first = first.split(' ')[1]
+        for (j, second) in enumerate(final_structs[i:]):
+            second = second.split(' ')[1]
+            if first == '__fal' + second:
+                attrs += [Attr(['HACK_typeorder', second, first])]
+
+    attrs += pkg.attrs
+    for attr in attrs:
         if attr.items[0] == 'HACK_typeorder':
             above = 'struct ' + attr.items[1]
             below = 'struct ' + attr.items[2]
@@ -2107,7 +2141,7 @@ if not make_pkg:
                 raise AssertionError(f'{above} was not found')
             for (i, struct) in enumerate(final_structs):
                 if struct.startswith(below):
-                    if removed[0] <= i:
+                    if removed[0] < i:
                         raise AssertionError(f'{above} is already above {below}')
                     final_structs.insert(i, removed[1])
                     break
@@ -2125,8 +2159,13 @@ if not make_pkg:
         print('typedef U64 UInt;', file=f)
         print('typedef I64 Int;', file=f)
         print('typedef U8 Bool;', file=f)
-        print('extern U8 _ZN2U813read_volatileE(U8 const * const);', file=f)
-        print('extern Nil _ZN2U814write_volatileE(U8 * const, U8 const);', file=f)
+        print('''
+        static U8 * memcpy(U8 * const dst, U8 const * src, UInt num) {
+            U8 * d = dst;
+            while (num--) *d++ = *src++;
+            return dst;
+        }
+        ''', file=f)
         for line in forward_structs:
             print(line, file=f)
 

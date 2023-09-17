@@ -8,6 +8,9 @@ pub let BITS: UInt = sizeof U32 * 8;
 
 pub let ERR_NOT_FOUND: Int = 0;
 
+pub extern fn read_volatile(addr: &U32): U32;
+pub extern fn write_volatile(addr: &mut U32, val: U32);
+
 pub fn find(items: []U32, predicate: fn(U32): Bool): !UInt {
     return find_ctx(items, predicate as &mut U8, fn(ctx: &mut U8, val: U32): Bool {
         return (ctx as fn(U32): Bool)(val);

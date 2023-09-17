@@ -1,19 +1,27 @@
 // kernel entry point
-#[HACK_typeorder "_ZN4Kfdt4UartE" "__fal_ZN4Kfdt4UartE"]
-#[HACK_typeorder "_ZN4Kfdt4IterE" "__fal_ZN4Kfdt4IterE"]
+#[HACK_typeorder "_ZN4Kfdt4IterE" "_ZN4Kfdt4TreeE"]
 pkg K;
 
 use Kfdt;
+use Kuart;
 
 pub fn start(fdt_start: &U8) {
-    let mut tree: Kfdt::Tree;
-    try let _: Nil = Kfdt::init_from_addr(&mut tree, fdt_start) else {
+    try let mut tree: Kfdt::Tree = Kfdt::init(fdt_start) else {
         halt();
     }
 
     try let uart: Kfdt::Uart = Kfdt::find_uart(&tree) else {
         halt();
     }
+
+    let mut uart2: Kuart::Uart;
+    try let base_address: &U8 = uart.base_address else {
+        halt();
+    }
+    uart2.base_address = base_address as &mut U8;
+
+    Kuart::init(&mut uart2);
+    Kuart::write(&mut uart2, "hello world!");
 
     // now we have the fdt, we're going to hurry and locate the
     // the boot console device, usually a 16550-style uart

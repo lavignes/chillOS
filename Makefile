@@ -7,6 +7,7 @@ RUN := qemu-system-riscv64 -M virt -smp 4 -m 2G -serial mon:stdio -bios none -ke
 
 AS_FLAGS := -I kernel -g -march=rv64ima
 CC_FLAGS := -march=rv64ima -mabi=lp64 -g -fPIC -nostdlib -nodefaultlibs -fno-builtin \
+			-ffreestanding \
 			-Wimplicit -Werror -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Wno-unused-variable \
 			-Wno-unused-label \
 			-Wstrict-aliasing
@@ -35,6 +36,7 @@ all: kernel.bin
 
 %.o: %.c
 	$(CC) $(CC_FLAGS) -c $< -o $@
+	# $(CC) $(CC_FLAGS) -S $< -o $@.S
 
 kernel.elf: $(KERNEL_ASM_OBJ) $(KERNEL_CHL_OBJ)
 	$(LD) $(LD_FLAGS) $^ -o $@
