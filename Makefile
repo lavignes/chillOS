@@ -19,6 +19,7 @@ KERNEL_ASM_OBJ := $(KERNEL_ASM_SRC:.s=.o)
 KERNEL_CHL_OBJ := $(KERNEL_CHL_SRC:.chl=.o)
 KERNEL_C_SRC := $(KERNEL_CHL_SRC:.chl=.c)
 KERNEL_C_PKG := $(KERNEL_CHL_SRC:.chl=.pkg)
+KERNEL_C_ASM := $(KERNEL_CHL_SRC:.chl=.asm)
 
 all: kernel.bin
 
@@ -36,7 +37,11 @@ all: kernel.bin
 
 %.o: %.c
 	$(CC) $(CC_FLAGS) -c $< -o $@
-	# $(CC) $(CC_FLAGS) -S $< -o $@.S
+
+%.asm: %.c
+	$(CC) $(filter-out -g,$(CC_FLAGS)) -O3 -S $< -o $@
+
+asm: $(KERNEL_C_ASM)
 
 kernel.elf: $(KERNEL_ASM_OBJ) $(KERNEL_CHL_OBJ)
 	$(LD) $(LD_FLAGS) $^ -o $@
@@ -45,7 +50,7 @@ kernel.bin: kernel.elf
 	$(OBJCOPY) -O binary $< $@
 
 clean:
-	rm -f kernel.bin kernel.elf $(KERNEL_ASM_OBJ) $(KERNEL_C_SRC) $(KERNEL_CHL_OBJ) $(KERNEL_C_PKG)
+	rm -f kernel.bin kernel.elf $(KERNEL_ASM_OBJ) $(KERNEL_C_SRC) $(KERNEL_CHL_OBJ) $(KERNEL_C_PKG) $(KERNEL_C_ASM)
 
 run: kernel.bin
 	$(RUN)

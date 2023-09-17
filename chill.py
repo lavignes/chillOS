@@ -2159,13 +2159,12 @@ if not make_pkg:
         print('typedef U64 UInt;', file=f)
         print('typedef I64 Int;', file=f)
         print('typedef U8 Bool;', file=f)
-        print('''
-        static U8 * memcpy(U8 * const dst, U8 const * src, UInt num) {
-            U8 * d = dst;
-            while (num--) *d++ = *src++;
-            return dst;
-        }
-        ''', file=f)
+        print('''\
+static U8 * memcpy(U8 * const dst, U8 const * src, UInt num) {
+    U8 * d = dst;
+    while (num--) *d++ = *src++;
+    return dst;
+}''', file=f)
         for line in forward_structs:
             print(line, file=f)
 
