@@ -1,0 +1,63 @@
+pkg Str;
+
+use Err;
+
+pub type Split: {
+    pub first: []U8,
+    pub rest: []U8,
+};
+
+pub fn split(str: []U8, substr: []U8) -> Split {
+    let mut split: Split;
+    try let pos: UInt = find(str, substr) else {
+        split.first = str;
+        split.rest = &str[0] ~ 0;
+        return split;
+    }
+    let i = pos + lengthof substr;
+    split.first = &str[0] ~ pos;
+    split.rest = &str[i] ~ lengthof str - i;
+    return split;
+}
+
+pub fn find(str: []U8, substr: []U8) -> !UInt {
+    if lengthof substr == 0 {
+        return Err::NOT_FOUND err;
+    }
+    let mut i = 0u;
+    for::outer i < lengthof str {
+        if str[i] != substr[0] {
+            i += 1;
+            continue;
+        }
+        let mut j = 1u;
+        for ((i + j) < lengthof str) && (j < lengthof substr) {
+            if str[i + j] != substr[j] {
+                i += 1;
+                continue outer;
+            }
+            j += 1;
+        }
+        return i ok;
+    }
+    return Err::NOT_FOUND err;
+}
+
+pub fn split_each(str: []U8, substr: []U8, consumer: &fn(split: []U8) -> !Nil) -> !Nil {
+    return split_each_ctx(str, substr, consumer as &mut U8, fn(ctx: &mut U8, split: []U8) -> !Nil {
+        return (ctx as &fn(_: []U8) -> !Nil)(split);
+    });
+}
+
+pub fn split_each_ctx(str: []U8, substr: []U8, ctx: &mut U8, consumer: &fn(ctx: &mut U8, split: []U8) -> !Nil) -> !Nil {
+    let mut i = 0u;
+    let mut view: []U8 = &str[i] ~ lengthof str - i;
+    for i < lengthof str {
+        try let pos: UInt = find(view, substr) else {
+            return consumer(ctx, view);
+        }
+        try let _: Nil = consumer(ctx, &str[i] ~ pos);
+        i += pos + lengthof substr;
+        view = &str[i] ~ lengthof str - i;
+    }
+}

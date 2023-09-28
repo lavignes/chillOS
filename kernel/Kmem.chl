@@ -1,0 +1,48 @@
+pkg Kmem;
+
+let mut RANGES_BUF: [64][]mut U8;
+let mut WATERMARKS_BUF: [64]UInt;
+let mut RANGES: [][]mut U8;
+let mut WATERMARKS: []mut UInt;
+let mut TAIL: &mut RecordSet; // TODO: should we allocate an "active" record set per core?
+
+let FLAG_USED: UInt = 1u << 0;
+
+type Record: {
+    mem: []mut U8,
+    flags: UInt,
+};
+
+// we maintain a linked list of blocks allocated memory ranges
+type RecordSet: {
+    prev: ?mut RecordSet,
+    next: ?mut RecordSet,
+    records_buf: [1024]Record,
+    records_len: UInt,
+};
+
+pub fn init(mem: []mut U8, stack_top: UInt) {
+    // the stack follows the kernel image in memory so we want to make sure we don't
+    // allocate over that.
+    let reserved = stack_top - (&mem[0] as UInt);
+
+    // for now we just assume there is s single contiguous memory range
+    // to rule that out we'd need to interrogate more data from the device tree.
+    RANGES_BUF[0] = &mut mem[reserved] ~ lengthof mem - reserved;
+    WATERMARKS_BUF[0] = 0;
+    RANGES = &RANGES_BUF[0] ~ 1;
+    WATERMARKS = &mut WATERMARKS_BUF[0] ~ 1;
+
+    // allocate the initial empty record set on the heap
+    // record sets are never deallocated
+    // TODO: consider allocating record sets at the end of the heap?
+    WATERMARKS[0] += sizeof RecordSet;
+    TAIL = &mut RANGES[0][0] as &mut RecordSet;
+    TAIL.prev = 0 as ?mut RecordSet;
+    TAIL.next = 0 as ?mut RecordSet;
+    TAIL.records_len = 0;
+}
+
+//pub fn alloc(size: UInt) -> []mut U8 {
+//     
+//}

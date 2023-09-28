@@ -1,0 +1,14 @@
+pkg Io;
+
+pub type FnRead: &fn(reader: &mut U8, buf: []mut U8) -> !UInt;
+pub type FnWrite: &fn(writer: &mut U8, buf: []U8) -> !UInt;
+
+pub type ReadTable: {
+    read: FnRead,
+};
+
+pub type WriteTable: {
+    write: FnWrite,
+};
+
+

@@ -62,11 +62,19 @@ class TypeFn(Type):
     rets: Union[Type, Name]
 
 @dataclass(frozen=True)
+class TypeQFn(TypeFn):
+    pass
+
+@dataclass(frozen=True)
 class TypeBool(Type):
     ffi: str
 
 @dataclass(frozen=True)
 class TypeNil(Type):
+    ffi: str
+
+@dataclass(frozen=True)
+class TypeErr(Type):
     ffi: str
 
 Nil = TypeNil(ffi='Nil')
@@ -81,6 +89,7 @@ U64 = TypeInteger(ffi='U64')
 I64 = TypeInteger(ffi='I64')
 UInt = TypeInteger(ffi='UInt')
 Int = TypeInteger(ffi='Int')
+Err = TypeErr(ffi='Err')
 
 PRIMS: Mapping[Name, Type] = {
     Name('*', 'Nil'): Nil,
@@ -95,9 +104,15 @@ PRIMS: Mapping[Name, Type] = {
     Name('*', 'I64'): I64,
     Name('*', 'UInt'): UInt,
     Name('*', 'Int'): Int,
+    Name('*', 'Err'): Err,
 }
 
 CUSTOM_TYPES: Dict[Name, Type] = {}
+
+def name_type(ty: Union[Type, Name]) -> Union[Type, Name]:
+    if isinstance(ty, Name):
+        return CUSTOM_TYPES.get(ty, ty)
+    return ty
 
 # very basic and buggy type checker and inference
 # in the real compiler we need to make multiple passes
@@ -105,9 +120,7 @@ CUSTOM_TYPES: Dict[Name, Type] = {}
 # of places besides basic integers and expressions
 def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
     if expr.ty is not None:
-        if isinstance(expr.ty, Name):
-            return CUSTOM_TYPES.get(expr.ty, expr.ty)
-        return expr.ty
+        return name_type(expr.ty)
     if isinstance(expr, ExprIndex):
         lhs = expr_type(expr.lhs)
         if isinstance(lhs, TypeArray):
@@ -116,7 +129,7 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
         if isinstance(lhs, TypeSlice):
             expr.ty = lhs.ty.ty
             return lhs.ty.ty
-        raise SyntaxError('illegal index: {lhs}[{rhs}]')
+        raise SyntaxError(f'illegal index: {lhs}[{expr.rhs}]')
     if isinstance(expr, ExprAccess):
         lhs = expr_type(expr.lhs)
         if isinstance(lhs, TypeStruct):
@@ -124,7 +137,14 @@ def expr_type(expr: 'Expr') -> Optional[Union[Type, Name]]:
                 if field.name == expr.field:
                     expr.ty = field.ty
                     return field.ty
-        raise SyntaxError('illegal access: {lhs}.{rhs}')
+        if isinstance(lhs, TypePointer):
+            lhs = name_type(lhs.ty)
+            if isinstance(lhs, TypeStruct):
+                for field in lhs.fields:
+                    if field.name == expr.field:
+                        expr.ty = field.ty
+                        return field.ty
+        raise SyntaxError(f'illegal access: {lhs}.{expr.field}')
     if isinstance(expr, ExprCast):
         lhs = expr_type(expr.expr)
         ty = expr.ty
@@ -237,9 +257,9 @@ class Lexer:
     tokens = list(reserved.values()) + ['ID', 'INTEGER', 'BOOL', 'BRACE_OPEN', 'BRACE_CLOSE',
             'BRACKET_OPEN', 'BRACKET_CLOSE', 'PLUS', 'MINUS', 'STAR', 'SOLIDUS', 'BANG', 'CARET',
             'AMPERSAND', 'PAREN_OPEN', 'PAREN_CLOSE', 'EQUAL', 'DOUBLE_EQUAL', 'LESS_THAN',
-            'GREATER_THAN', 'LESS_EQUAL', 'GREATER_EQUAL', 'PIPE', 'COLON', 'SEMI', 'MODULUS',
-            'DOT', 'DOUBLE_COLON', 'COMMA', 'STRING', 'SHIFT_LEFT', 'SHIFT_RIGHT', 'AND', 'OR',
-            'NOT_EQUAL', 'PLUS_EQUAL', 'MINUS_EQUAL', 'STAR_EQUAL', 'SOLIDUS_EQUAL',
+            'GREATER_THAN', 'LESS_EQUAL', 'GREATER_EQUAL', 'ARROW', 'PIPE', 'COLON', 'SEMI',
+            'MODULUS', 'DOT', 'DOUBLE_COLON', 'COMMA', 'STRING', 'SHIFT_LEFT', 'SHIFT_RIGHT',
+            'AND', 'OR', 'NOT_EQUAL', 'PLUS_EQUAL', 'MINUS_EQUAL', 'STAR_EQUAL', 'SOLIDUS_EQUAL',
             'MODULUS_EQUAL', 'SHIFT_LEFT_EQUAL', 'SHIFT_RIGHT_EQUAL', 'AND_EQUAL', 'CARET_EQUAL',
             'PIPE_EQUAL', 'QUESTION', 'TILDE', 'HASH']
 
@@ -262,6 +282,7 @@ class Lexer:
     t_GREATER_THAN = r'>'
     t_LESS_EQUAL = r'<='
     t_GREATER_EQUAL = r'>='
+    t_ARROW = r'->'
     t_PIPE = r'\|'
     t_COLON = r':'
     t_SEMI = r';'
@@ -320,7 +341,7 @@ class Lexer:
         return t
 
     def t_INTEGER(self, t):
-        r"((0x[0-9a-fA-F][0-9a-fA-F_]*)|(0b[01][01_]*)|(\d[\d_]*)|('((\\x[0-9a-fA-F]{2})|[ -~])'))([iuIU](8|16|32|64)?)?"
+        r"((0x[0-9a-fA-F][0-9a-fA-F_]*)|(0b[01][01_]*)|(\d[\d_]*)|('((\\x[0-9a-fA-F]{2})|[ -~])+?'))([iuIU](8|16|32|64)?)?"
         ty = None
         if cast(str, t.value).lower().endswith('u8'):
             t.value = t.value[:-2]
@@ -362,7 +383,12 @@ class Lexer:
             if cast(str, t.value).startswith('\\x'):
                 t.value = int(t.value[2:], base=16)
             else:
-                t.value = ord(t.value)
+                i = 0
+                shift = 0
+                for c in reversed(t.value):
+                    i |= ord(c) << shift
+                    shift += 4
+                t.value = i
         else:
             t.value = int(cast(str, t.value).replace('_', ''))
 
@@ -626,7 +652,7 @@ class Parser:
 
     def p_begin_return_type_2(self, p):
         '''
-        begin_return_type : COLON type
+        begin_return_type : ARROW type
         '''
         self.return_types.append(p[2])
         p[0] = p[2]
@@ -758,39 +784,57 @@ class Parser:
 
     def p_type_9(self, p):
         '''
-        type : FN PAREN_OPEN type_list PAREN_CLOSE
+        type : AMPERSAND FN PAREN_OPEN arg_type_list PAREN_CLOSE
         '''
-        p[0] = TypeFn(args=p[3], rets=Nil)
+        p[0] = TypeFn(args=p[4], rets=Nil)
 
     def p_type_10(self, p):
         '''
-        type : FN PAREN_OPEN type_list PAREN_CLOSE COLON type
+        type : AMPERSAND FN PAREN_OPEN arg_type_list PAREN_CLOSE ARROW type
         '''
-        p[0] = TypeFn(args=p[3], rets=p[6])
+        p[0] = TypeFn(args=p[4], rets=p[7])
 
     def p_type_11(self, p):
+        '''
+        type : QUESTION FN PAREN_OPEN arg_type_list PAREN_CLOSE
+        '''
+        p[0] = TypeQFn(args=p[4], rets=Nil)
+
+    def p_type_12(self, p):
+        '''
+        type : QUESTION FN PAREN_OPEN arg_type_list PAREN_CLOSE ARROW type
+        '''
+        p[0] = TypeQFn(args=p[4], rets=p[7])
+
+    def p_type_13(self, p):
         '''
         type : BANG type
         '''
         p[0] = TypeFallible(ty=p[2])
 
-    def p_type_list_1(self, p):
+    def p_arg_type_list_1(self, p):
         '''
-        type_list : empty
+        arg_type_list : empty
         '''
         p[0] = []
 
-    def p_type_list_2(self, p):
+    def p_arg_type_list_2(self, p):
         '''
-        type_list : type
+        arg_type_list : arg_type_list_item COMMA arg_type_list
+        '''
+        p[0] = [p[1]] + p[3]
+
+    def p_arg_type_list_3(self, p):
+        '''
+        arg_type_list : arg_type_list_item
         '''
         p[0] = [p[1]]
 
-    def p_type_list_3(self, p):
+    def p_arg_type_list_item(self, p):
         '''
-        type_list : type COMMA type_list
+        arg_type_list_item : ID COLON type
         '''
-        p[0] = [p[1]] + p[3]
+        p[0] = p[3]
 
     def p_name_1(self, p):
         '''
@@ -1179,15 +1223,15 @@ class Parser:
         '''
         else_let_bind : begin_scope ID
         '''
-        self.scopes[-1][Name('*', p[2])] = Int
-        p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=Int, val=None, mut=False)
+        self.scopes[-1][Name('*', p[2])] = Err
+        p[0] = StmtBind(line=p.lineno(1), name=p[2], ty=Err, val=None, mut=False)
 
     def p_else_let_bind_2(self, p):
         '''
         else_let_bind : begin_scope MUT ID
         '''
-        self.scopes[-1][Name('*', p[4])] = Int
-        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=Int, val=None, mut=True)
+        self.scopes[-1][Name('*', p[4])] = Err
+        p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=Err, val=None, mut=True)
 
     def p_expr_1(self, p):
         '''
@@ -1682,10 +1726,10 @@ def mangle_type_name(ty: Union[Type, Name], pub: bool) -> str:
         return f'__qptr{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeFallible):
         FALLIBLE_FORWARDS.append(f'struct __fal{mangle_type_name(ty.ty, pub)};')
-        FALLIBLE_STRUCTS.append(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ Int __err; {emit_type_or_name(ty.ty, pub)} __ok; }} __as; UInt __var; }};')
+        FALLIBLE_STRUCTS.append(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ Err __err; {emit_type_or_name(ty.ty, pub)} __ok; }} __as; UInt __var; }};')
         if pub:
             PUB_FALLIBLE_FORWARDS.append(f'struct __fal{mangle_type_name(ty.ty, pub)};')
-            PUB_FALLIBLE_STRUCTS.append(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ Int __err; {emit_type_or_name(ty.ty, pub)} __ok; }} __as; UInt __var; }};')
+            PUB_FALLIBLE_STRUCTS.append(f'struct __fal{mangle_type_name(ty.ty, pub)} {{ union {{ Err __err; {emit_type_or_name(ty.ty, pub)} __ok; }} __as; UInt __var; }};')
         return f'__fal{mangle_type_name(ty.ty, pub)}'
     if isinstance(ty, TypeNil):
         return ty.ffi
@@ -1725,6 +1769,8 @@ def emit_type(ty: Type, apply_visibility=False, hide_all=False) -> str:
         return f'{emit_type_or_name(ty.ty, not (apply_visibility and hide_all))} const *'
     if isinstance(ty, TypeNil):
         return ty.ffi
+    if isinstance(ty, TypeErr):
+        return ty.ffi
     if isinstance(ty, TypeStruct):
         fields = []
         for field in ty.fields:
@@ -1763,6 +1809,8 @@ def emit_expr(expr: Expr, pub: bool) -> str:
     if isinstance(expr, ExprNil):
         return '((Nil){})'
     if isinstance(expr, ExprBinOp):
+        if expr.op == '==' and (isinstance(expr.lhs.ty, TypeErr) or isinstance(expr.rhs.ty, TypeErr)):
+                return f'(__erreq({emit_expr(expr.lhs, pub)}, {emit_expr(expr.rhs, pub)}))'
         return f'({emit_expr(expr.lhs, pub)} {expr.op} {emit_expr(expr.rhs, pub)})'
     if isinstance(expr, ExprUnaryOp):
         # TODO: these cases may cause problems for unresolved names
@@ -1821,6 +1869,7 @@ def emit_expr(expr: Expr, pub: bool) -> str:
     if isinstance(expr, ExprIndex):
         return f'(({emit_expr(expr.lhs, pub)}).__items[{emit_expr(expr.rhs, pub)}])'
     if isinstance(expr, ExprAccess):
+        expr_type(expr.lhs)
         if isinstance(expr.lhs.ty, TypePointer): # auto deref!
             return f'({emit_expr(expr.lhs, pub)}->{expr.field})'
         return f'({emit_expr(expr.lhs, pub)}.{expr.field})'
@@ -1882,7 +1931,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
         output += [prefix + '{']
         val = cast(Expr, stmt.taken.val)
         fal = f'__fal{COUNTER}'
-        if isinstance(stmt.taken.ty, TypePointer):
+        if isinstance(stmt.taken.ty, (TypePointer, TypeQFn)):
             output += [prefix + f'{emit_type_and_name(stmt.taken.ty, stmt.taken.name, stmt.taken.mut, False)} = {emit_expr(val, False)}.__ptr;']
             output += [prefix + f'if ({stmt.taken.name} != 0) {{']
         else:
@@ -1906,7 +1955,7 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
     if isinstance(stmt, StmtTryLet):
         val = cast(Expr, stmt.bind.val)
         fal = f'__fal{COUNTER}'
-        if isinstance(stmt.bind.ty, TypePointer):
+        if isinstance(stmt.bind.ty, (TypePointer, TypeQFn)):
             output += [prefix + f'{emit_type_and_name(stmt.bind.ty, stmt.bind.name, stmt.bind.mut, False)} = {emit_expr(val, False)}.__ptr;']
             output += [prefix + f'if ({stmt.bind.name} == 0) {{']
             if stmt.else_bind is not None:
@@ -2097,7 +2146,7 @@ for item in pkg.items:
                 output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)} = {emit_expr(item.val, item.pub)};']
         continue
     if isinstance(item, PkgUse) and not make_pkg:
-        with open(os.path.dirname(filename) +'/' + item.name + '.pkg') as f:
+        with open(os.path.dirname(filename) + '/' + item.name + '.pkg') as f:
             pkgfile = json.load(fp=f)
             QPOINTER_FORWARDS.extend(pkgfile['forward_qptrs'])
             VIEW_FORWARDS.extend(pkgfile['forward_views'])
@@ -2119,12 +2168,19 @@ if not make_pkg:
     final_structs = list(dict.fromkeys(ARRAY_STRUCTS)) + list(dict.fromkeys(QPOINTER_STRUCTS)) + list(dict.fromkeys(VIEW_STRUCTS)) + list(dict.fromkeys(FALLIBLE_STRUCTS)) + structs
 
     attrs = []
+    moved: Dict = {} # i dunno, just trying to prevent duplicates might need to run this in a loop instead
+
     # we'll try and automate this to a degree. we know that types should always come before their boxed counterparts
     for (i, first) in enumerate(final_structs):
         first = first.split(' ')[1]
         for (j, second) in enumerate(final_structs[i:]):
             second = second.split(' ')[1]
+            if first == second:
+                continue
             if first == '__fal' + second:
+                attrs += [Attr(['HACK_typeorder', second, first])]
+            if first.startswith('__arr') and first.endswith(second) and not second in moved:
+                moved[second] = moved;
                 attrs += [Attr(['HACK_typeorder', second, first])]
 
     attrs += pkg.attrs
@@ -2159,11 +2215,22 @@ if not make_pkg:
         print('typedef U64 UInt;', file=f)
         print('typedef I64 Int;', file=f)
         print('typedef U8 Bool;', file=f)
+        print('typedef struct { UInt domain; Int code; } Err;', file=f)
         print('''\
 static U8 * memcpy(U8 * const dst, U8 const * src, UInt num) {
     U8 * d = dst;
     while (num--) *d++ = *src++;
     return dst;
+}''', file=f)
+        print('''\
+static U8 * memset(U8 * const dst, Int const val, UInt num) {
+    U8 * d = dst;
+    while (num--) *d++ = val;
+    return dst;
+}''', file=f)
+        print('''\
+static Bool __erreq(Err lhs, Err rhs) {
+    return (lhs.domain == rhs.domain) && (lhs.code == rhs.code);
 }''', file=f)
         for line in forward_structs:
             print(line, file=f)

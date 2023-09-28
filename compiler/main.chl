@@ -1,0 +1,7 @@
+pkg main;
+
+use Linux;
+
+fn main(argc: UInt, argv: &&U8) {
+
+}

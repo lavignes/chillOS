@@ -1,0 +1,22 @@
+pkg ChlLexer;
+
+let BUF_SIZE: UInt = 128;
+
+pub type Location: {
+    pub line: UInt,
+    pub column: UInt,
+};
+
+pub type Lexer: {
+    file_id: UInt,
+    pub loc: Location,
+    buf: [BUF_SIZE]U8,
+    buf_len: UInt,
+};
+
+pub fn init(lex: &mut Lexer, file_id: UInt) {
+    lex.file_id = file_id;
+    lex.loc.line = 1;
+    lex.loc.column = 1;
+}
+

@@ -2,29 +2,27 @@ pkg UInt;
 
 use Ascii;
 use U64;
+use Err;
 
 pub let MAX: UInt = 0xFFFF_FFFF_FFFF_FFFFu;
 pub let MIN: UInt = 0x0000_0000_0000_0000u;
 pub let BITS: UInt  = sizeof UInt * 8;
 
-pub fn is_err(val: !UInt): Bool {
+pub fn is_err(val: !UInt) -> Bool {
     if let _ : UInt = val {
         return true;
     }
     return false;
 }
 
-pub fn min(lhs: UInt, rhs: UInt): UInt {
+pub fn min(lhs: UInt, rhs: UInt) -> UInt {
     if lhs < rhs {
         return lhs;
     }
     return rhs;
 }
 
-pub let ERR_OUT_OF_RANGE: Int = -1;
-pub let ERR_MALFORMED: Int = -2;
-
-pub fn parse(base: UInt, str: []U8): !UInt {
+pub fn parse(base: UInt, str: []U8) -> !UInt {
     let cutoff = MAX / base;
     let cutlim = MAX % base;
     let mut i = 0u;
@@ -42,15 +40,15 @@ pub fn parse(base: UInt, str: []U8): !UInt {
                 c -= 'a' - 10;
             }
         } else {
-            return ERR_MALFORMED err;
+            return Err::MALFORMED_INPUT err;
         }
 
         if c >= base {
-            return ERR_MALFORMED err;
+            return Err::MALFORMED_INPUT err;
         }
 
         if (val > cutoff) || ((val == cutoff) && (c > cutlim)) {
-            return ERR_OUT_OF_RANGE err;
+            return Err::OUT_OF_RANGE err;
         }
 
         val *= base;

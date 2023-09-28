@@ -9,12 +9,13 @@ let OFFSET_LINE_CONTROL: UInt = 3;
 let OFFSET_LINE_STATUS: UInt = 5;
 
 pub type Uart: {
-    pub base_address: &mut U8,
+    base_address: &mut U8,
 };
 
-pub fn init(uart: &mut Uart) {
-    U8::write_volatile(uart.base_address + OFFSET_LINE_CONTROL, 3); // 8-bit
-    U8::write_volatile(uart.base_address + OFFSET_FIFO_CONTROL, 1); // enable FIFO
+pub fn init(uart: &mut Uart, base_address: &mut U8) {
+    uart.base_address = base_address;
+    U8::write_volatile(base_address + OFFSET_LINE_CONTROL, 3); // 8-bit
+    U8::write_volatile(base_address + OFFSET_FIFO_CONTROL, 1); // enable FIFO
 }
 
 pub fn write(uart: &mut Uart, bytes: []U8) {
@@ -25,7 +26,7 @@ pub fn write(uart: &mut Uart, bytes: []U8) {
     }
 }
 
-pub fn read(uart: &mut Uart, buf: []mut U8): UInt {
+pub fn read(uart: &mut Uart, buf: []mut U8) -> UInt {
     let mut i = 0u;
     for i < lengthof buf {
         for (U8::read_volatile(uart.base_address + OFFSET_LINE_STATUS) & 0x01) == 0 { }

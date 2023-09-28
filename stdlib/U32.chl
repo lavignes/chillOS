@@ -1,23 +1,23 @@
 pkg U32;
 
 use UInt;
+use Err;
 
 pub let MAX: U32 = 0xFFFF_FFFFu32;
 pub let MIN: U32 = 0x0000_0000u32;
 pub let BITS: UInt = sizeof U32 * 8;
+pub let EMPTY: []U32 = &MIN ~ 0;
 
-pub let ERR_NOT_FOUND: Int = 0;
-
-pub extern fn read_volatile(addr: &U32): U32;
+pub extern fn read_volatile(addr: &U32) -> U32;
 pub extern fn write_volatile(addr: &mut U32, val: U32);
 
-pub fn find(items: []U32, predicate: fn(U32): Bool): !UInt {
-    return find_ctx(items, predicate as &mut U8, fn(ctx: &mut U8, val: U32): Bool {
-        return (ctx as fn(U32): Bool)(val);
+pub fn find(items: []U32, predicate: &fn(val: U32) -> Bool) -> !UInt {
+    return find_ctx(items, predicate as &mut U8, fn(ctx: &mut U8, val: U32) -> Bool {
+        return (ctx as &fn(_: U32) -> Bool)(val);
     });
 }
 
-pub fn find_ctx(items: []U32, ctx: &mut U8, predicate: fn(&mut U8, U32): Bool): !UInt {
+pub fn find_ctx(items: []U32, ctx: &mut U8, predicate: &fn(ctx: &mut U8, val: U32) -> Bool) -> !UInt {
     let mut i = 0u;
     for i < lengthof items {
         if predicate(ctx, items[i]) {
@@ -25,16 +25,16 @@ pub fn find_ctx(items: []U32, ctx: &mut U8, predicate: fn(&mut U8, U32): Bool): 
         }
         i += 1;
     }
-    return ERR_NOT_FOUND err;
+    return Err::NOT_FOUND err;
 }
 
-pub fn map(dst: []mut U32, src: []U32, func: fn(U32): U32) {
-    map_ctx(dst, src, func as &mut U8, fn(ctx: &mut U8, val: U32): U32 {
-        return (ctx as fn(U32): U32)(val);
+pub fn map(dst: []mut U32, src: []U32, func: &fn(val: U32) -> U32) {
+    map_ctx(dst, src, func as &mut U8, fn(ctx: &mut U8, val: U32) -> U32 {
+        return (ctx as &fn(_: U32) -> U32)(val);
     });
 }
 
-pub fn map_ctx(dst: []mut U32, src: []U32, ctx: &mut U8, func: fn(&mut U8, U32): U32) {
+pub fn map_ctx(dst: []mut U32, src: []U32, ctx: &mut U8, func: &fn(ctx: &mut U8, val: U32) -> U32) {
     let mut i = 0u;
     let mut length: UInt = UInt::min(lengthof dst, lengthof src);
     for i < length {
@@ -43,34 +43,34 @@ pub fn map_ctx(dst: []mut U32, src: []U32, ctx: &mut U8, func: fn(&mut U8, U32):
     }
 }
 
-pub fn endian_swap(val: U32): U32 {
+pub fn endian_swap(val: U32) -> U32 {
     return ((val >> 24) & 0x0000_00FF) |
            ((val << 8)  & 0x00FF_0000) |
            ((val >> 8)  & 0x0000_FF00) |
            ((val << 24) & 0xFF00_0000);
 }
 
-pub fn align_to_next(addr: &U8): &U32 {
+pub fn align_to_next(addr: &U8) -> &U32 {
     return (addr + ((sizeof U32 - ((addr as UInt) % sizeof U32)) % sizeof U32)) as &U32;
 }
 
-pub fn rotate_left(val: U32, amt: UInt): U32 {
+pub fn rotate_left(val: U32, amt: UInt) -> U32 {
     return (val << amt) | (val >> (BITS - amt));
 }
 
-pub fn rotate_right(val: U32, amt: UInt): U32 {
+pub fn rotate_right(val: U32, amt: UInt) -> U32 {
     return (val >> amt) | (val << (BITS - amt));
 }
 
-pub fn invert(val: U32): U32 {
+pub fn invert(val: U32) -> U32 {
     return val ^ MAX;
 }
 
-pub fn count_zeros(val: U32): UInt {
+pub fn count_zeros(val: U32) -> UInt {
     return BITS - count_ones(val);
 }
 
-pub fn count_ones(mut val: U32): UInt {
+pub fn count_ones(mut val: U32) -> UInt {
     let mut i = 0u;
     let mut count = 0u;
     for i < BITS {
@@ -88,7 +88,7 @@ let LOG2_TABLE: [32]U32 = [
     19, 27, 23,  6, 26,  5,  4, 31
 ];
 
-pub fn log2(mut val: U32): U32 {
+pub fn log2(mut val: U32) -> U32 {
     val |= val >> 1;
     val |= val >> 2;
     val |= val >> 4;
@@ -97,10 +97,10 @@ pub fn log2(mut val: U32): U32 {
     return LOG2_TABLE[(val * 0x07C4_ACDD) >> 27];
 }
 
-pub fn parse(base: UInt, str: []U8): !U32 {
+pub fn parse(base: UInt, str: []U8) -> !U32 {
     try let uint: UInt = UInt::parse(base, str);
     if uint > (MAX as UInt) {
-        return UInt::ERR_OUT_OF_RANGE err;
+        return Err::OUT_OF_RANGE err;
     }
     return uint as U32 ok;
 }

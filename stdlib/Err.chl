@@ -1,0 +1,7 @@
+pkg Err;
+
+pub let NOT_FOUND: Err = { domain: 0, code: 0 };
+pub let OUT_OF_RANGE: Err = { domain: 0, code: 1 };
+pub let MALFORMED_INPUT: Err = { domain: 0, code: 2 };
+
+

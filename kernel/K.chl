@@ -1,37 +1,74 @@
 // kernel entry point
 #[HACK_typeorder "_ZN4Kfdt4IterE" "_ZN4Kfdt4TreeE"]
+#[HACK_typeorder "__view__mutptrU8" "_ZN4Kmem6RecordE"]
 pkg K;
 
-use Kfdt;
+use Ascii;
+use Kfdt as dt;
 use Kuart;
+use Kmem;
+use UInt;
+use Str;
+use Mem;
+use U32;
 
-pub fn start(fdt_start: &U8) {
-    try let mut tree: Kfdt::Tree = Kfdt::init(fdt_start) else {
+pub fn start(stack_top: UInt, fdt_start: &U8) {
+    try let mut tree: dt::Tree = dt::parse(fdt_start) else {
         halt();
     }
 
-    try let uart: Kfdt::Uart = Kfdt::find_uart(&tree) else {
+    try let base_address: UInt = find_uart(&tree) else {
+        halt();
+    }
+    let mut uart: Kuart::Uart;
+    Kuart::init(&mut uart, base_address as &mut U8);
+    Kuart::write(&mut uart, "hello world\r\n");
+
+    try let mem: []mut U8 = find_mem(&tree) else {
+        Kuart::write(&mut uart, "unable to locate memory\r\n");
         halt();
     }
 
-    let mut uart2: Kuart::Uart;
-    try let base_address: &U8 = uart.base_address else {
-        halt();
-    }
-    uart2.base_address = base_address as &mut U8;
+    Kmem::init(mem, stack_top);
+    Kuart::write(&mut uart, "Kmem init\r\n");
 
-    Kuart::init(&mut uart2);
-    Kuart::write(&mut uart2, "hello world!");
-
-    // now we have the fdt, we're going to hurry and locate the
-    // the boot console device, usually a 16550-style uart
-
-    // once the kernel is up and running, we'll enumerate the *drivers*
-    // asking them to confirm if they are compatible with the hardware
-    // in the fdt and activate them. Linux does something like this.
+    halt();
 }
 
-pub fn halt() {
+fn halt() {
     for {}
+}
+
+fn find_uart(tree: &dt::Tree) -> !UInt {
+    // for now, we'll assume a "/chosen" 16550 uart is defined
+    try let mut chosen: dt::Iter = dt::find_path(tree, "/chosen");
+    try let stdout_path: dt::Prop = dt::find_prop(tree, &mut chosen, "stdout-path");
+    try let mut stdout: dt::Iter = dt::find_path(tree, Str::split(stdout_path.data, "\x00").first);
+    try let compatible: dt::Prop = dt::find_prop(tree, &mut stdout, "compatible");
+    return UInt::parse(16, Str::split(stdout.name, "@").rest);
+}
+
+
+fn find_mem(tree: &dt::Tree) -> ![]mut U8 {
+    try let mut root: dt::Iter = dt::find_path(tree, "/");
+    try let mut memory: dt::Iter = dt::find_child(tree, &mut root, fn(child: &dt::Iter) -> Bool {
+        return Mem::compare(Str::split(child.name, "@").first, "memory") == 0;
+    });
+    try let reg: dt::Prop = dt::find_prop(tree, &mut memory, "reg");
+    // get the first memory range. though there could be more
+    let cells: []U32 = reg_cells(reg.data);
+    let base: U64 = ((U32::endian_swap(cells[0]) as U64) << 32) |
+                    (U32::endian_swap(cells[1]) as U64);
+    let size: U64 = ((U32::endian_swap(cells[2]) as U64) << 32) |
+                    (U32::endian_swap(cells[3]) as U64);
+    return base as UInt as &mut U8 ~ size as UInt ok;
+}
+
+fn reg_cells(data: []U8) -> []U32 {
+    let len = lengthof data;
+    if len < sizeof U32 {
+        return U32::EMPTY;
+    }
+    return &data[0] as &U32 ~ len / sizeof U32;
 }
 

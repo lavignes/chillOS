@@ -1,18 +1,20 @@
 pkg U64;
 
 use UInt;
+use Err;
 
 pub let MAX: U64 = 0xFFFF_FFFF_FFFF_FFFFu64;
 pub let MIN: U64 = 0x0000_0000_0000_0000u64;
 pub let BITS: U64 = sizeof U64 * 8;
+pub let EMPTY: []U64 = &MIN ~ 0;
 
-pub extern fn read_volatile(addr: &U64): U64;
+pub extern fn read_volatile(addr: &U64) -> U64;
 pub extern fn write_volatile(addr: &mut U64, val: U64);
 
-pub fn parse(base: UInt, str: []U8): !U64 {
+pub fn parse(base: UInt, str: []U8) -> !U64 {
     try let uint: UInt = UInt::parse(base, str);
     if uint > (MAX as UInt) {
-        return UInt::ERR_OUT_OF_RANGE err;
+        return Err::OUT_OF_RANGE err;
     }
     return uint as U64 ok;
 }

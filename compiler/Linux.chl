@@ -1,0 +1,7 @@
+pkg Linux;
+
+extern fn sys_open(filename: &U8, flags: UInt, mode: UInt) -> Int;
+extern fn sys_read(fd: UInt, buf: &mut U8, count: UInt) -> Int;
+extern fn sys_write(fd: UInt, buf: &U8, count: UInt) -> Int;
+extern fn sys_close(fd: UInt) -> Int;
+extern fn sys_exit(code: I32);

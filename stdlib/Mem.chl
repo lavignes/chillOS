@@ -1,0 +1,97 @@
+pkg Mem;
+
+pub type FnAlloc: &fn(alloc: &mut U8, size: UInt, align: UInt) -> []mut U8;
+pub type FnRealloc: &fn(alloc: &mut U8, mem: []mut U8, size: UInt, align: UInt) -> []mut U8;
+pub type FnDealloc: &fn(alloc: &mut U8, mem: []mut U8);
+
+pub type AllocTable: {
+    ctx: &mut U8,
+    alloc: FnAlloc,
+    realloc: FnRealloc,
+    dealloc: FnDealloc,
+};
+
+pub fn set(mem: []mut U8, val: U8) {
+    let mut i = 0u;
+    for i < lengthof mem {
+        mem[i] = val;
+        i += 1;
+    }
+}
+
+pub fn sort(mem: []mut U8, val_size: UInt, predicate: &fn(lhs: []U8, rhs: []U8) -> Int) {
+    sort_ctx(mem, predicate as &mut U8, val_size, fn(ctx: &mut U8, lhs: []U8, rhs: []U8) -> Int {
+        return (ctx as &fn(_: []U8, _: []U8) -> Int)(lhs, rhs);
+    });
+}
+
+type StackNode: {
+    lo: &mut U8,
+    hi: &mut U8,
+};
+
+let QSORT_THRESHOLD: UInt = 4;
+
+pub fn sort_ctx(mem: []mut U8, ctx: &mut U8, val_size: UInt, predicate: &fn(ctx: &mut U8, lhs: []U8, rhs: []U8) -> Int) {
+    if lengthof mem == 0 {
+        return;
+    }
+    let element_count = lengthof mem / val_size;
+    if element_count > QSORT_THRESHOLD {
+        let mut lo: &mut U8 = &mut mem[0];
+        let mut hi: &mut U8 = lo + (val_size * (element_count - 1));
+        let mut stack: [64]StackNode; // FIXME: U8::BITS * sizeof UInt
+        let mut top: &mut StackNode = &mut stack[0];
+
+        for top >= &stack[0] {
+
+        }
+    }
+}
+
+fn push(top: &mut &mut StackNode, lo: &mut U8, hi: &mut U8) {
+    (*top).lo = lo;
+    (*top).hi = hi;
+    *top += 1;
+}
+
+fn pop(top: &mut &StackNode, lo: &mut &mut U8, hi: &mut &mut U8) {
+    *top -= 1;
+    *lo = (*top).lo;
+    *hi = (*top).hi;
+}
+
+fn swap(mut lhs: &mut U8, mut rhs: &mut U8, mut val_size: UInt) {
+    for val_size > 0 {
+        let mut tmp: U8 = *lhs;
+        *lhs = *rhs;
+        *rhs = tmp;
+        lhs += 1;
+        rhs += 1;
+        val_size -= 1;
+    }
+}
+
+
+//pub fn copy(dst: []mut U8, src: []U8) {
+//
+//}
+
+pub fn compare(lhs: []U8, rhs: []U8) -> Int {
+    let length = lengthof lhs;
+    if (length != lengthof rhs) || (length == 0) {
+        return -1;
+    }
+    let mut i = 0u;
+    let mut cl: U8;
+    let mut cr: U8;
+    for i < length {
+        cl = lhs[i];
+        cr = rhs[i];
+        if cl != cr {
+            return cl - cr;
+        }
+        i += 1;
+    }
+    return 0;
+}
