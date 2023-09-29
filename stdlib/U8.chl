@@ -2,6 +2,7 @@ pkg U8;
 
 use Err;
 use UInt;
+use Mem;
 
 pub let MIN: U8 = 0x00u8;
 pub let MAX: U8 = 0xFFu8;
@@ -30,6 +31,12 @@ pub fn find_ctx(items: []U8, ctx: &mut U8, predicate: &fn(ctx: &mut U8, val: U8)
         i += 1;
     }
     return Err::NOT_FOUND err;
+}
+
+pub fn sort(items: []mut U8) {
+    Mem::sort(items, sizeof U8, fn(lhs: []U8, rhs: []U8) -> Int {
+        return (lhs[0] - rhs[0]) as Int;
+    });
 }
 
 pub fn parse(base: UInt, str: []U8) -> !U8 {

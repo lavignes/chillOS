@@ -2146,7 +2146,11 @@ for item in pkg.items:
                 output += [f'static {emit_type_and_name(item.ty, emit_name(item.name), item.mut, item.pub)} = {emit_expr(item.val, item.pub)};']
         continue
     if isinstance(item, PkgUse) and not make_pkg:
-        with open(os.path.dirname(filename) + '/' + item.name + '.pkg') as f:
+        thisdir = os.path.dirname(filename) + '/'
+        path = thisdir + item.name + '.pkg'
+        if not os.path.isfile(path):
+            path = os.getcwd() + '/stdlib/' + item.name + '.pkg'
+        with open(path) as f:
             pkgfile = json.load(fp=f)
             QPOINTER_FORWARDS.extend(pkgfile['forward_qptrs'])
             VIEW_FORWARDS.extend(pkgfile['forward_views'])

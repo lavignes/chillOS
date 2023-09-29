@@ -1,5 +1,7 @@
 pkg Mem;
 
+use UInt;
+
 pub type FnAlloc: &fn(alloc: &mut U8, size: UInt, align: UInt) -> []mut U8;
 pub type FnRealloc: &fn(alloc: &mut U8, mem: []mut U8, size: UInt, align: UInt) -> []mut U8;
 pub type FnDealloc: &fn(alloc: &mut U8, mem: []mut U8);
@@ -19,6 +21,25 @@ pub fn set(mem: []mut U8, val: U8) {
     }
 }
 
+pub fn compare(lhs: []U8, rhs: []U8) -> Int {
+    let length = lengthof lhs;
+    if (length != lengthof rhs) || (length == 0) {
+        return -1;
+    }
+    let mut i = 0u;
+    let mut cl: U8;
+    let mut cr: U8;
+    for i < length {
+        cl = lhs[i];
+        cr = rhs[i];
+        if cl != cr {
+            return (cl - cr) as Int;
+        }
+        i += 1;
+    }
+    return 0;
+}
+
 pub fn sort(mem: []mut U8, val_size: UInt, predicate: &fn(lhs: []U8, rhs: []U8) -> Int) {
     sort_ctx(mem, predicate as &mut U8, val_size, fn(ctx: &mut U8, lhs: []U8, rhs: []U8) -> Int {
         return (ctx as &fn(_: []U8, _: []U8) -> Int)(lhs, rhs);
@@ -36,6 +57,7 @@ pub fn sort_ctx(mem: []mut U8, ctx: &mut U8, val_size: UInt, predicate: &fn(ctx:
     if lengthof mem == 0 {
         return;
     }
+    let insertion_sort_threshold = QSORT_THRESHOLD * val_size;
     let element_count = lengthof mem / val_size;
     if element_count > QSORT_THRESHOLD {
         let mut lo: &mut U8 = &mut mem[0];
@@ -44,9 +66,125 @@ pub fn sort_ctx(mem: []mut U8, ctx: &mut U8, val_size: UInt, predicate: &fn(ctx:
         let mut top: &mut StackNode = &mut stack[0];
 
         for top >= &stack[0] {
+            let mut left: &mut U8;
+            let mut right: &mut U8;
+            let mut mid: &mut U8 = lo + (val_size * (((hi - lo) as UInt / val_size) >> 1));
 
+            // todo: compiler: conversion to immutable slice should be automatic
+            if predicate(ctx, mid as &U8 ~ val_size, lo as &U8 ~ val_size) < 0 {
+                swap(mid, lo, val_size);
+            }
+            {::skip
+                if predicate(ctx, hi as &U8 ~ val_size, mid as &U8 ~ val_size) < 0 {
+                    swap(mid, hi, val_size);
+                } else {
+                    break skip;
+                }
+                if predicate(ctx, mid as &U8 ~ val_size, lo as &U8 ~ val_size) < 0 {
+                    swap(mid, lo, val_size);
+                }
+            }
+            left = lo + val_size;
+            right = hi - val_size;
+
+            for {
+                for predicate(ctx, left as &U8 ~ val_size, mid as &U8 ~ val_size) < 0 {
+                    left += val_size;
+                }
+                for predicate(ctx, mid as &U8 ~ val_size, right as &U8 ~ val_size) < 0 {
+                    right -= val_size;
+                }
+                if left < right {
+                    swap(left, right, val_size);
+                    if mid == left {
+                        mid = right;
+                    } else if mid == right {
+                        mid = left;
+                    }
+                    left += val_size;
+                    right -= val_size;
+                } else if left == right {
+                    left += val_size;
+                    right -= val_size;
+                    break;
+                }
+
+                if left > right {
+                    break;
+                }
+            }
+
+            if ((right - lo) as UInt) <= insertion_sort_threshold {
+                if ((hi - left) as UInt) <= insertion_sort_threshold {
+                    pop(&mut top, &mut lo, &mut hi);
+                } else {
+                    lo = left;
+                }
+            } else if ((hi - left) as UInt) <= insertion_sort_threshold {
+                hi = right;
+            } else if (right - lo) > (hi - left) {
+                push(&mut top, lo, right);
+                lo = left;
+            } else {
+                push(&mut top, left, hi);
+                hi = right;
+            }
         }
     }
+
+    let mut base: &mut U8 = &mem[0];
+    let end: &U8 = base + (val_size * (element_count - 1));
+    let mut tmp: &mut U8 = base;
+    let tresh: &U8 = UInt::min(end as UInt, (base + insertion_sort_threshold) as UInt) as &U8;
+    let mut run: &mut U8 = tmp + val_size;
+
+    for run <= tresh {
+        if predicate(ctx, run as &U8 ~ val_size, tmp as &U8 ~ val_size) < 0 {
+            tmp = run;
+        }
+        run += val_size;
+    }
+
+    if tmp != base {
+        swap(tmp, base, val_size);
+    }
+
+    run = base + val_size;
+    for {
+        run += val_size;
+        if run > end {
+            break;
+        }
+        tmp = run - val_size;
+        for predicate(ctx, run as &U8 ~ val_size, tmp as &U8 ~ val_size) < 0 {
+            tmp -= val_size;
+        }
+
+        tmp += val_size;
+        if tmp != run {
+            let mut ptr: &mut U8 = run + val_size;
+            for {
+                ptr -= 1;
+                if ptr < run {
+                    break;
+                }
+
+                let byte: U8 = *ptr;
+                let mut hi: &mut U8 = ptr;
+                let mut lo: &mut U8 = ptr;
+                for {
+                    lo -= val_size;
+                    if lo < tmp {
+                        break;
+                    }
+                    *hi = *lo;
+                    hi = lo;
+                }
+                *hi = byte;
+            }
+        }
+    }
+
 }
 
 fn push(top: &mut &mut StackNode, lo: &mut U8, hi: &mut U8) {
@@ -55,7 +193,7 @@ fn push(top: &mut &mut StackNode, lo: &mut U8, hi: &mut U8) {
     *top += 1;
 }
 
-fn pop(top: &mut &StackNode, lo: &mut &mut U8, hi: &mut &mut U8) {
+fn pop(top: &mut &mut StackNode, lo: &mut &mut U8, hi: &mut &mut U8) {
     *top -= 1;
     *lo = (*top).lo;
     *hi = (*top).hi;
@@ -72,26 +210,3 @@ fn swap(mut lhs: &mut U8, mut rhs: &mut U8, mut val_size: UInt) {
     }
 }
 
-
-//pub fn copy(dst: []mut U8, src: []U8) {
-//
-//}
-
-pub fn compare(lhs: []U8, rhs: []U8) -> Int {
-    let length = lengthof lhs;
-    if (length != lengthof rhs) || (length == 0) {
-        return -1;
-    }
-    let mut i = 0u;
-    let mut cl: U8;
-    let mut cr: U8;
-    for i < length {
-        cl = lhs[i];
-        cr = rhs[i];
-        if cl != cr {
-            return cl - cr;
-        }
-        i += 1;
-    }
-    return 0;
-}

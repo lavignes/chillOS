@@ -1,4 +1,5 @@
-pkg Kmem;
+// very core kernel-level heap management
+pkg Kheap;
 
 let mut RANGES_BUF: [64][]mut U8;
 let mut WATERMARKS_BUF: [64]UInt;
@@ -13,7 +14,7 @@ type Record: {
     flags: UInt,
 };
 
-// we maintain a linked list of blocks allocated memory ranges
+// we maintain a linked list of ranges of allocated memory ranges
 type RecordSet: {
     prev: ?mut RecordSet,
     next: ?mut RecordSet,
@@ -21,14 +22,14 @@ type RecordSet: {
     records_len: UInt,
 };
 
-pub fn init(mem: []mut U8, stack_top: UInt) {
+pub fn init(range: []mut U8, stack_top: UInt) {
     // the stack follows the kernel image in memory so we want to make sure we don't
     // allocate over that.
-    let reserved = stack_top - (&mem[0] as UInt);
+    let reserved = stack_top - (&range[0] as UInt);
 
     // for now we just assume there is s single contiguous memory range
     // to rule that out we'd need to interrogate more data from the device tree.
-    RANGES_BUF[0] = &mut mem[reserved] ~ lengthof mem - reserved;
+    RANGES_BUF[0] = &mut range[reserved] ~ lengthof range - reserved;
     WATERMARKS_BUF[0] = 0;
     RANGES = &RANGES_BUF[0] ~ 1;
     WATERMARKS = &mut WATERMARKS_BUF[0] ~ 1;
@@ -43,6 +44,6 @@ pub fn init(mem: []mut U8, stack_top: UInt) {
     TAIL.records_len = 0;
 }
 
-//pub fn alloc(size: UInt) -> []mut U8 {
-//     
-//}
+pub fn alloc(size: UInt) -> []mut U8 {
+     
+}

@@ -6,11 +6,12 @@ pkg K;
 use Ascii;
 use Kfdt as dt;
 use Kuart;
-use Kmem;
+use Kheap;
 use UInt;
 use Str;
 use Mem;
 use U32;
+use U8;
 
 pub fn start(stack_top: UInt, fdt_start: &U8) {
     try let mut tree: dt::Tree = dt::parse(fdt_start) else {
@@ -24,13 +25,13 @@ pub fn start(stack_top: UInt, fdt_start: &U8) {
     Kuart::init(&mut uart, base_address as &mut U8);
     Kuart::write(&mut uart, "hello world\r\n");
 
-    try let mem: []mut U8 = find_mem(&tree) else {
+    try let range: []mut U8 = find_mem(&tree) else {
         Kuart::write(&mut uart, "unable to locate memory\r\n");
         halt();
     }
 
-    Kmem::init(mem, stack_top);
-    Kuart::write(&mut uart, "Kmem init\r\n");
+    Kheap::init(range, stack_top);
+    Kuart::write(&mut uart, "Kheap init\r\n");
 
     halt();
 }
@@ -45,6 +46,7 @@ fn find_uart(tree: &dt::Tree) -> !UInt {
     try let stdout_path: dt::Prop = dt::find_prop(tree, &mut chosen, "stdout-path");
     try let mut stdout: dt::Iter = dt::find_path(tree, Str::split(stdout_path.data, "\x00").first);
     try let compatible: dt::Prop = dt::find_prop(tree, &mut stdout, "compatible");
+    try let _: UInt = Str::find(compatible.data, "16550");
     return UInt::parse(16, Str::split(stdout.name, "@").rest);
 }
 
@@ -56,7 +58,7 @@ fn find_mem(tree: &dt::Tree) -> ![]mut U8 {
     });
     try let reg: dt::Prop = dt::find_prop(tree, &mut memory, "reg");
     // get the first memory range. though there could be more
-    let cells: []U32 = reg_cells(reg.data);
+    let mut cells: []U32 = reg_cells(reg.data);
     let base: U64 = ((U32::endian_swap(cells[0]) as U64) << 32) |
                     (U32::endian_swap(cells[1]) as U64);
     let size: U64 = ((U32::endian_swap(cells[2]) as U64) << 32) |

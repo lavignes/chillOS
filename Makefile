@@ -23,21 +23,23 @@ KERNEL_C_ASM := $(KERNEL_CHL_SRC:.chl=.asm)
 
 STDLIB_ASM_SRC := $(wildcard stdlib/*.s)
 STDLIB_CHL_SRC := $(wildcard stdlib/*.chl)
-STDLIB_ASM_OBJ := $(KERNEL_ASM_SRC:.s=.o)
-STDLIB_CHL_OBJ := $(KERNEL_CHL_SRC:.chl=.o)
-STDLIB_C_SRC := $(KERNEL_CHL_SRC:.chl=.c)
-STDLIB_C_PKG := $(KERNEL_CHL_SRC:.chl=.pkg)
-STDLIB_C_ASM := $(KERNEL_CHL_SRC:.chl=.asm)
+STDLIB_ASM_OBJ := $(STDLIB_ASM_SRC:.s=.o)
+STDLIB_CHL_OBJ := $(STDLIB_CHL_SRC:.chl=.o)
+STDLIB_C_SRC := $(STDLIB_CHL_SRC:.chl=.c)
+STDLIB_C_PKG := $(STDLIB_CHL_SRC:.chl=.pkg)
+STDLIB_C_ASM := $(STDLIB_CHL_SRC:.chl=.asm)
 
 all: kernel.bin
 
 #.PRECIOUS: $(KERNEL_C_SRC)
+#.PRECIOUS: $(STDLIB_C_SRC)
 #.PRECIOUS: $(KERNEL_C_PKG)
+#.PRECIOUS: $(STDLIB_C_PKG)
 
 %.o: %.s
 	$(AS) $(AS_FLAGS) -c $< -o $@
 
-%.c: %.chl $(KERNEL_C_PKG) $(STDLIB_C_PKG)
+%.c: %.chl $(STDLIB_C_PKG) $(KERNEL_C_PKG)
 	./chill.py -c $<
 
 %.pkg: %.chl
@@ -51,7 +53,7 @@ all: kernel.bin
 
 asm: $(KERNEL_C_ASM) $(STDLIB_C_ASM)
 
-kernel.elf: $(KERNEL_ASM_OBJ) $(KERNEL_CHL_OBJ) $(STDLIB_ASM_OBJ) $(STDLIB_CHL_OBJ)
+kernel.elf: $(STDLIB_ASM_OBJ) $(STDLIB_CHL_OBJ) $(KERNEL_ASM_OBJ) $(KERNEL_CHL_OBJ) 
 	$(LD) $(LD_FLAGS) $^ -o $@
 
 kernel.bin: kernel.elf
