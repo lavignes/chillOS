@@ -1,0 +1,15 @@
+pkg Atomic;
+
+pub let ORDER_AQUIRE: UInt = 0;
+pub let ORDER_RELEASE: UInt = 1;
+
+pub type Flag: {
+    state: UInt
+};
+
+pub extern fn test_and_set(flag: &mut Flag, order: UInt) -> Bool;
+pub extern fn clear(flag: &mut Flag, order: UInt);
+
+pub fn flag_init(flag: &mut Flag) {
+    flag.state = 0;
+}

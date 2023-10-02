@@ -7,7 +7,8 @@ use Mem;
 pub let MIN: U8 = 0x00u8;
 pub let MAX: U8 = 0xFFu8;
 pub let BITS: UInt = sizeof U8 * 8;
-pub let EMPTY: []U8 = &MIN ~ 0;
+pub let EMPTY: []U8 = 0 as &U8 ~ 0;
+pub let EMPTY_MUT: []mut U8 = 0 as &mut U8 ~ 0;
 
 pub extern fn read_volatile(addr: &U8) -> U8;
 pub extern fn write_volatile(addr: &mut U8, val: U8);

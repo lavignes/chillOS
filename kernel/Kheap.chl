@@ -1,25 +1,18 @@
 // very core kernel-level heap management
 pkg Kheap;
 
-let mut RANGES_BUF: [64][]mut U8;
-let mut WATERMARKS_BUF: [64]UInt;
-let mut RANGES: [][]mut U8;
-let mut WATERMARKS: []mut UInt;
-let mut TAIL: &mut RecordSet; // TODO: should we allocate an "active" record set per core?
+use Atomic;
+use UInt;
+use U8;
 
-let FLAG_USED: UInt = 1u << 0;
+let mut RANGE: []mut U8;
+let mut HEAD: Node;
+let mut LOCK: Atomic::Flag;
+let BLOCK_SIZE: UInt = 1u << 14; // 16384 == 0x4000
 
-type Record: {
-    mem: []mut U8,
-    flags: UInt,
-};
-
-// we maintain a linked list of ranges of allocated memory ranges
-type RecordSet: {
-    prev: ?mut RecordSet,
-    next: ?mut RecordSet,
-    records_buf: [1024]Record,
-    records_len: UInt,
+type Node: {
+    next: ?mut Node,
+    prev: ?mut Node,
 };
 
 pub fn init(range: []mut U8, stack_top: UInt) {
@@ -27,23 +20,24 @@ pub fn init(range: []mut U8, stack_top: UInt) {
     // allocate over that.
     let reserved = stack_top - (&range[0] as UInt);
 
-    // for now we just assume there is s single contiguous memory range
-    // to rule that out we'd need to interrogate more data from the device tree.
-    RANGES_BUF[0] = &mut range[reserved] ~ lengthof range - reserved;
-    WATERMARKS_BUF[0] = 0;
-    RANGES = &RANGES_BUF[0] ~ 1;
-    WATERMARKS = &mut WATERMARKS_BUF[0] ~ 1;
+    // though since we allocate in fixed size blocks, we want to align to the first block
+    let aligned: UInt = (reserved + BLOCK_SIZE - 1) & !(BLOCK_SIZE - 1);
 
-    // allocate the initial empty record set on the heap
-    // record sets are never deallocated
-    // TODO: consider allocating record sets at the end of the heap?
-    WATERMARKS[0] += sizeof RecordSet;
-    TAIL = &mut RANGES[0][0] as &mut RecordSet;
-    TAIL.prev = 0 as ?mut RecordSet;
-    TAIL.next = 0 as ?mut RecordSet;
-    TAIL.records_len = 0;
+    // for now we just assume there is a single contiguous memory range
+    // to rule that out we'd need to interrogate more data from the device tree.
+    RANGE = &mut range[aligned] ~ lengthof range - aligned;
+
+    HEAD.next = 0 as ?mut Node;
+    HEAD.prev = 0 as ?mut Node;
+
+    Atomic::flag_init(&mut LOCK);
 }
 
-pub fn alloc(size: UInt) -> []mut U8 {
-     
+pub fn alloc(min_size: UInt) -> []mut U8 {
+    for !Atomic::test_and_set(&mut LOCK, Atomic::ORDER_AQUIRE) {}
+    let mem: []mut U8 = U8::EMPTY_MUT;
+    {::exit
+    }
+    Atomic::clear(&mut LOCK, Atomic::ORDER_RELEASE);
+    return mem;
 }

@@ -252,6 +252,7 @@ class Lexer:
             'ok': 'OK',
             'try': 'TRY',
             'nil': 'NIL',
+            'switch': 'SWITCH',
     }
 
     tokens = list(reserved.values()) + ['ID', 'INTEGER', 'BOOL', 'BRACE_OPEN', 'BRACE_CLOSE',
@@ -1029,6 +1030,7 @@ class Parser:
              | for_let_stmt
              | expr_stmt SEMI
              | try_stmt
+             | switch_stmt
         '''
         p[0] = p[1]
 
@@ -1232,6 +1234,36 @@ class Parser:
         '''
         self.scopes[-1][Name('*', p[4])] = Err
         p[0] = StmtBind(line=p.lineno(1), name=p[3], ty=Err, val=None, mut=True)
+
+    def p_switch_stmt(self, p):
+        '''
+        switch_stmt : SWITCH expr BRACE_OPEN case_list BRACE_CLOSE
+        '''
+        p[0] = StmtSwitch(line=p.lineno(1), expr=p[2], cases=p[4])
+
+    def p_case_list_1(self, p):
+        '''
+        case_list : empty
+        '''
+        p[0] = []
+
+    def p_case_list_2(self, p):
+        '''
+        case_list : case case_list
+        '''
+        p[0] = [p[1]] + p[2]
+
+    def p_case_1(self, p):
+        '''
+        case : expr ARROW stmt_block
+        '''
+        p[0] = (p[1], p[3])
+
+    def p_case_2(self, p):
+        '''
+        case : expr ARROW stmt
+        '''
+        p[0] = (p[1], [p[3]])
 
     def p_expr_1(self, p):
         '''
@@ -1589,6 +1621,11 @@ class StmtCall(Stmt):
     expr: 'ExprCall'
 
 @dataclass
+class StmtSwitch(Stmt):
+    expr: 'Expr'
+    cases: Sequence[Tuple['Expr', Sequence[Stmt]]]
+
+@dataclass
 class Expr(ABC):
     ty: Optional[Union[Type, Name]]
 
@@ -1918,6 +1955,19 @@ def emit_stmt(stmt: Stmt, indent: int) -> Sequence[str]:
             output += [pad + '}']
         if stmt.label is not None:
             output += [prefix + f'__label_break_{stmt.label}: (void)0;']
+        return output
+    if isinstance(stmt, StmtSwitch):
+        output += [prefix + f'switch ({emit_expr(stmt.expr, False)}) {{']
+        for (expr, stmts) in stmt.cases:
+            # real compiler should make '_' its own special token
+            if isinstance(expr, ExprName) and expr.name.ident.startswith('__noname'):
+                output += [prefix + f'    default: {{']
+            else:
+                output += [prefix + f'    case {emit_expr(expr, False)}: {{']
+            for s in stmts:
+                output += emit_stmt(s, indent + 8)
+            output += [pad + '    } break;']
+        output += [pad + '}']
         return output
     if isinstance(stmt, StmtBlock):
         output += [prefix + '{']

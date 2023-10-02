@@ -1,6 +1,6 @@
 // kernel entry point
 #[HACK_typeorder "_ZN4Kfdt4IterE" "_ZN4Kfdt4TreeE"]
-#[HACK_typeorder "__view__mutptrU8" "_ZN4Kmem6RecordE"]
+//#[HACK_typeorder "__view__mutptrU8" "_ZN4Kmem6RecordE"]
 pkg K;
 
 use Ascii;
@@ -29,7 +29,6 @@ pub fn start(stack_top: UInt, fdt_start: &U8) {
         Kuart::write(&mut uart, "unable to locate memory\r\n");
         halt();
     }
-
     Kheap::init(range, stack_top);
     Kuart::write(&mut uart, "Kheap init\r\n");
 
@@ -49,7 +48,6 @@ fn find_uart(tree: &dt::Tree) -> !UInt {
     try let _: UInt = Str::find(compatible.data, "16550");
     return UInt::parse(16, Str::split(stdout.name, "@").rest);
 }
-
 
 fn find_mem(tree: &dt::Tree) -> ![]mut U8 {
     try let mut root: dt::Iter = dt::find_path(tree, "/");
